@@ -55,15 +55,17 @@ export interface JbetTripProposedChangeRow {
 
 /**
  * Shape of a row from JBET `gamma_presentations` (migrations 20260421_001 +
- * 20260427_001), subset the artifact mapping needs. The real status union is
- * draft | shared | archived | generating — there is NO 'completed', NO
- * 'failed', and NO last_checked_at column (gamma_url stays NULL and status
- * stays 'generating' until the operator/poller fills it in).
+ * 20260427_001 + 20260628_001), subset the artifact mapping needs. The real
+ * status union is draft | shared | archived | generating | failed — there is
+ * NO 'completed', and NO last_checked_at column (gamma_url stays NULL and
+ * status stays 'generating' until the operator/poller fills it in; the
+ * JBE-025 poller sets 'failed' + failure_reason when Gamma reports an error,
+ * per 20260628_001).
  */
 export interface JbetGammaPresentationRow {
   id: string;
   trip_id: string;
-  status: 'draft' | 'shared' | 'archived' | 'generating';
+  status: 'draft' | 'shared' | 'archived' | 'generating' | 'failed';
   /** NULL only while status='generating' (20260427_001 dropped NOT NULL). */
   gamma_url: string | null;
 }
@@ -82,13 +84,16 @@ export function jbetProposedChange(row: JbetTripProposedChangeRow): ProposedChan
   };
 }
 
-// draft/shared/archived all mean "the deck exists" → 'ready'. JBET's table has
-// no failure state, so 'failed' is unreachable from this vertical.
+// draft/shared/archived all mean "the deck exists" → 'ready'. 'failed' is the
+// JBE-025 poller's terminal error state (20260628_001) → shared 'failed', so a
+// failed generation stays visible in the artifact lifecycle instead of being
+// dropped at the seam.
 const GAMMA_STATUS: Record<JbetGammaPresentationRow['status'], ArtifactStatus> = {
   generating: 'generating',
   draft: 'ready',
   shared: 'ready',
   archived: 'ready',
+  failed: 'failed',
 };
 
 export function jbetGammaArtifact(

@@ -125,9 +125,10 @@ describe('JBET adapter → contracts', () => {
   });
 
   // Ground truth: JBET `gamma_presentations` (migrations 20260421_001 +
-  // 20260427_001). Real status union is draft|shared|archived|generating
-  // (src/types/gamma.ts:7) — there is NO 'completed', NO 'failed', and NO
-  // last_checked_at column.
+  // 20260427_001 + 20260628_001). Real status union is
+  // draft|shared|archived|generating|failed (src/types/gamma.ts:7) — there is
+  // NO 'completed' and NO last_checked_at column. 'failed' is the JBE-025
+  // poller's terminal error state (20260628_001).
   it('maps a draft gamma_presentations row into a ready ArtifactRecord', () => {
     const row: JbetGammaPresentationRow = {
       id: 'gp_1',
@@ -160,6 +161,20 @@ describe('JBET adapter → contracts', () => {
       gamma_url: null,
     });
     expect(art.status).toBe('generating');
+    expect('externalUrl' in art).toBe(false);
+  });
+
+  // 20260628_001: the JBE-025 poller sets 'failed' when Gamma reports an error.
+  // The adapter must carry that terminal failure into the shared lifecycle, not
+  // drop it (a missing mapping produced status:undefined, omitted by JSON).
+  it('maps a failed gamma row to status "failed"', () => {
+    const art = jbetGammaArtifact({
+      id: 'gp_failed',
+      trip_id: 'trip_1',
+      status: 'failed',
+      gamma_url: null,
+    });
+    expect(art.status).toBe('failed');
     expect('externalUrl' in art).toBe(false);
   });
 });
