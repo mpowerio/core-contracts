@@ -22,21 +22,31 @@ import type { ProposedChange, ProposedChangeStatus, ArtifactRecord } from '../in
  */
 
 describe('JBET adapter → contracts', () => {
-  it('maps a trip_proposed_changes row into ProposedChange', () => {
+  // Ground truth: JBET `trip_proposed_changes` (portal migration 065, lines 34-48).
+  // Real columns: id, trip_id, proposed_by (actor email), action, payload(jsonb),
+  // diff(jsonb {before,after,summary}), status, expires_at, applied_at,
+  // applied_by, failure_reason, created_at.
+  it('maps a pending trip_proposed_changes row losslessly (real schema: created_at/diff.summary)', () => {
     const row: JbetTripProposedChangeRow = {
       id: 'tpc_1',
-      action: 'set_guest_pricing',
+      trip_id: 'trip_9',
+      action: 'update_pricing_per_guest',
       payload: { guestId: 'g1', amount: 4200 },
+      // Real column is nested `diff.summary` jsonb, NOT a flat `diff_summary`.
+      diff: { summary: '+$4,200 for guest g1', before: {}, after: {} },
       status: 'proposed',
-      diff_summary: '+$4,200 for guest g1',
+      // Real actor email — unlike FPC, JBET records who proposed each change.
       proposed_by: 'andrea@jbelitetravel.com',
-      proposed_at: '2026-06-29T12:00:00Z',
-      resolved_by: null,
-      resolved_at: null,
+      expires_at: '2026-06-30T12:00:00Z',
+      applied_at: null,
+      applied_by: null,
+      failure_reason: null,
+      // Real column is `created_at`, NOT `proposed_at`.
+      created_at: '2026-06-29T12:00:00Z',
     };
     const pc: ProposedChange = jbetProposedChange(row);
     expect(pc.id).toBe('tpc_1');
-    expect(pc.action).toBe('set_guest_pricing');
+    expect(pc.action).toBe('update_pricing_per_guest');
     expect(pc.payload).toEqual({ guestId: 'g1', amount: 4200 });
     expect(pc.status).toBe('proposed');
     expect(pc.diffSummary).toBe('+$4,200 for guest g1');
@@ -47,32 +57,83 @@ describe('JBET adapter → contracts', () => {
     expect('resolvedBy' in pc).toBe(false);
   });
 
-  it("maps a 'failed' trip_proposed_changes row losslessly (migration 065 has the state)", () => {
-    // JBET's real trip_proposed_changes CHECK is
-    // (status IN ('proposed','applied','expired','failed','rejected')) — 'failed'
-    // is a real terminal state, so the shared envelope must carry it.
-    const row: JbetTripProposedChangeRow = {
-      id: 'tpc_f',
-      action: 'set_guest_pricing',
-      payload: { guestId: 'g9' },
-      status: 'failed',
-      diff_summary: null,
+  it('maps an applied row: applied_at/applied_by → resolvedAt/resolvedBy', () => {
+    const pc = jbetProposedChange({
+      id: 'tpc_a',
+      trip_id: 'trip_9',
+      action: 'confirm_vendor',
+      payload: { vendorId: 'v3' },
+      diff: { summary: 'vendor v3 pending → confirmed' },
+      status: 'applied',
       proposed_by: 'juan@jbelitetravel.com',
-      proposed_at: '2026-06-30T00:00:00Z',
-      resolved_by: null,
-      resolved_at: null,
-    };
-    const pc: ProposedChange = jbetProposedChange(row);
-    expect(pc.status).toBe('failed');
+      expires_at: '2026-06-30T12:00:00Z',
+      applied_at: '2026-06-29T13:00:00Z',
+      applied_by: 'janella@jbelitetravel.com',
+      failure_reason: null,
+      created_at: '2026-06-29T12:00:00Z',
+    });
+    expect(pc.status).toBe('applied');
+    expect(pc.resolvedAt).toBe('2026-06-29T13:00:00Z');
+    expect(pc.resolvedBy).toBe('janella@jbelitetravel.com');
   });
 
-  it('maps a completed gamma_presentations row into a ready ArtifactRecord', () => {
+  it('maps a rejected row: reject does NOT set applied_at (invariant I3) → resolvedAt omitted', () => {
+    // proposal-actions.ts:124-131 — reject only flips status; audit queries
+    // filter `applied_at IS NOT NULL` to mean "actually applied".
+    const pc = jbetProposedChange({
+      id: 'tpc_r',
+      trip_id: 'trip_9',
+      action: 'assign_guest_to_room',
+      payload: { guestId: 'g2', roomId: 'r1' },
+      diff: { summary: 'guest g2 → room r1' },
+      status: 'rejected',
+      proposed_by: 'caterina@jbelitetravel.com',
+      expires_at: '2026-06-30T12:00:00Z',
+      applied_at: null,
+      applied_by: null,
+      failure_reason: null,
+      created_at: '2026-06-29T12:00:00Z',
+    });
+    expect(pc.status).toBe('rejected');
+    expect('resolvedAt' in pc).toBe(false);
+    expect('resolvedBy' in pc).toBe(false);
+  });
+
+  it("maps a 'failed' row losslessly (migration 065 CAS-race terminal state)", () => {
+    // JBET's real trip_proposed_changes CHECK is
+    // (status IN ('proposed','applied','expired','failed','rejected')) — 'failed'
+    // is a real terminal state, so the shared envelope must carry it. The row
+    // also carries failure_reason (065:46), which has no envelope field.
+    const pc = jbetProposedChange({
+      id: 'tpc_f',
+      trip_id: 'trip_9',
+      action: 'update_itinerary_item',
+      payload: { itemId: 'i9' },
+      diff: {},
+      status: 'failed',
+      proposed_by: 'juan@jbelitetravel.com',
+      expires_at: '2026-07-01T00:00:00Z',
+      applied_at: null,
+      applied_by: null,
+      failure_reason: 'CAS flip succeeded but mutation failed',
+      created_at: '2026-06-30T00:00:00Z',
+    });
+    expect(pc.status).toBe('failed');
+    expect('resolvedAt' in pc).toBe(false);
+    // diff without .summary → diffSummary omitted.
+    expect('diffSummary' in pc).toBe(false);
+  });
+
+  // Ground truth: JBET `gamma_presentations` (migrations 20260421_001 +
+  // 20260427_001). Real status union is draft|shared|archived|generating
+  // (src/types/gamma.ts:7) — there is NO 'completed', NO 'failed', and NO
+  // last_checked_at column.
+  it('maps a draft gamma_presentations row into a ready ArtifactRecord', () => {
     const row: JbetGammaPresentationRow = {
       id: 'gp_1',
       trip_id: 'trip_9',
-      status: 'completed',
+      status: 'draft',
       gamma_url: 'https://gamma.app/docs/09dvq12shdwmvbg',
-      last_checked_at: '2026-06-29T13:00:00Z',
     };
     const art: ArtifactRecord<'gamma_itinerary'> = jbetGammaArtifact(row);
     expect(art.kind).toBe('gamma_itinerary');
@@ -81,7 +142,14 @@ describe('JBET adapter → contracts', () => {
     expect(art.provider).toBe('gamma');
     expect(art.status).toBe('ready');
     expect(art.externalUrl).toBe('https://gamma.app/docs/09dvq12shdwmvbg');
-    expect(art.lastCheckedAt).toBe('2026-06-29T13:00:00Z');
+    // gamma_presentations has NO last_checked_at column — must not be invented.
+    expect('lastCheckedAt' in art).toBe(false);
+  });
+
+  it('maps shared and archived gamma rows to "ready" (deck exists in all three)', () => {
+    const base = { id: 'gp_s', trip_id: 'trip_5', gamma_url: 'https://gamma.app/docs/abc123' };
+    expect(jbetGammaArtifact({ ...base, status: 'shared' }).status).toBe('ready');
+    expect(jbetGammaArtifact({ ...base, status: 'archived' }).status).toBe('ready');
   });
 
   it('maps a still-generating gamma row to status "generating" with no url', () => {
@@ -90,7 +158,6 @@ describe('JBET adapter → contracts', () => {
       trip_id: 'trip_5',
       status: 'generating',
       gamma_url: null,
-      last_checked_at: null,
     });
     expect(art.status).toBe('generating');
     expect('externalUrl' in art).toBe(false);
@@ -239,9 +306,10 @@ describe('cross-vertical: both verticals produce the SAME envelope types', () =>
   it('collects ProposedChanges from both verticals into one homogeneous list', () => {
     const changes: ProposedChange[] = [
       jbetProposedChange({
-        id: 'a', action: 'x', payload: {}, status: 'proposed',
-        diff_summary: null, proposed_by: 'a@b.c', proposed_at: '2026-01-01T00:00:00Z',
-        resolved_by: null, resolved_at: null,
+        id: 'a', trip_id: 'trip_1', action: 'x', payload: {}, status: 'proposed',
+        diff: {}, proposed_by: 'a@b.c', expires_at: '2026-01-02T00:00:00Z',
+        applied_at: null, applied_by: null, failure_reason: null,
+        created_at: '2026-01-01T00:00:00Z',
       }),
       fpcProposedChange({
         id: 'b', estimate_id: 'est_1', action: 'add_line_item', params: {},
