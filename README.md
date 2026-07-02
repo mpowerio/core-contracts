@@ -20,9 +20,9 @@ Shared-core is "real" only if **both JBET and FPC import + type-check this packa
 - [x] Package type-checks standalone, strict (+`exactOptionalPropertyTypes`), zero framework deps (`npm run typecheck` → exit 0)
 - [x] `lintGrants` TDD'd (7/7)
 - [x] **JBET adapter** (`src/adapters/jbet.ts`) — trip_proposed_changes → `ProposedChange`; gamma_presentations → `ArtifactRecord`
-- [x] **FPC adapter** (`src/adapters/fpc.ts`) — estimate_proposed_changes → `ProposedChange` (note: `created_at`→`proposedAt` seam); proposals → `ArtifactRecord`
-- [x] **shared proposal/apply + shared artifact tests run against BOTH adapters** (`src/adapters/adapters.test.ts`, 7/7) — incl. a cross-vertical test collecting both into one homogeneous `ProposedChange[]`
-- [~] **Both REAL apps compile against the package** — PROVEN here against *representative* row shapes; the full cross-repo import (JBET + FPC `package.json` depend on `@mpowerio/core-contracts`) is pending the distribution decision below
+- [x] **FPC adapter** (`src/adapters/fpc.ts`) — estimate_proposed_changes → `ProposedChange`, mapped to FPC's **real** schema (migrations 022+023: `proposed_at`, `params`, nested `diff.summary`, split `applied_at`/`rejected_at`, agent-only `proposedBy`); proposals → `ArtifactRecord`
+- [x] **shared proposal/apply + shared artifact tests run against BOTH adapters** (`src/adapters/adapters.test.ts`, 13/13) — incl. a cross-vertical test collecting both into one homogeneous `ProposedChange[]`, and `'failed'` round-trips for both verticals
+- [~] **Both REAL apps compile against the package** — FPC's first real consumer (parkerman5000/fpc-construction-crm#89) surfaced two v0.1.0 defects, both fixed in **v0.2.0** (real FPC row schema + `'failed'` status); the full cross-repo import is pending the distribution decision below
 - [ ] grant-lint wired into both migration folders (next: dogfood on FPC via #FPC-R18-1)
 
 If the adapters can't compile cleanly, the shared-core plan is not ready → the next pilot uses **controlled copy-then-converge** (with a seam ledger).
