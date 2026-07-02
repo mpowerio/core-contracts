@@ -1,16 +1,16 @@
 export function fpcProposedChange(row) {
+    // FPC splits resolution by outcome; only applied/rejected record a time.
+    const resolvedAt = row.applied_at ?? row.rejected_at;
     return {
         id: row.id,
         action: row.action,
-        payload: row.payload,
+        payload: row.params,
         status: row.status,
-        proposedBy: row.proposed_by,
-        // The seam: FPC's `created_at` normalizes to the same envelope field JBET
-        // populates from `proposed_at`.
-        proposedAt: row.created_at,
-        ...(row.diff_summary !== null ? { diffSummary: row.diff_summary } : {}),
-        ...(row.resolved_by !== null ? { resolvedBy: row.resolved_by } : {}),
-        ...(row.resolved_at !== null ? { resolvedAt: row.resolved_at } : {}),
+        // FPC v1a records no per-proposal actor — every row is agent-proposed.
+        proposedBy: 'agent',
+        proposedAt: row.proposed_at,
+        ...(row.diff.summary ? { diffSummary: row.diff.summary } : {}),
+        ...(resolvedAt !== null ? { resolvedAt } : {}),
     };
 }
 export function fpcProposalArtifact(row) {

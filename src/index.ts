@@ -64,7 +64,13 @@ export interface AuditEvent {
 // Present identically in JBET (trip_proposed_changes) and FPC
 // (estimate_proposed_changes). The domain payload stays vertical; the
 // lifecycle is shared.
-export type ProposedChangeStatus = 'proposed' | 'applied' | 'rejected' | 'expired';
+//
+// 'failed' is a real terminal state in BOTH verticals' schemas (FPC migration
+// 023 + JBET migration 065): the compare-and-swap status flip succeeded but the
+// downstream mutation then failed, so the row "may have partially applied —
+// manual review required". It is neither 'applied' (would hide the failure) nor
+// re-openable to 'proposed' (would invite a retry into a half-applied record).
+export type ProposedChangeStatus = 'proposed' | 'applied' | 'rejected' | 'expired' | 'failed';
 
 export interface ProposedChange<TAction extends string = string, TPayload = unknown> {
   id: string;

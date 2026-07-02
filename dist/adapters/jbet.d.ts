@@ -5,12 +5,17 @@
  * STUB: returns placeholder values so the spec fails first (TDD red).
  */
 import type { ProposedChange, ArtifactRecord } from '../index.js';
-/** Shape of a row from JBET `trip_proposed_changes`. */
+/**
+ * Shape of a row from JBET `trip_proposed_changes`. Migration 065's CHECK is
+ * (status IN ('proposed','applied','expired','failed','rejected')) — 'failed'
+ * is a real terminal state here too, so the row type carries it and it flows
+ * straight into the shared `ProposedChangeStatus`.
+ */
 export interface JbetTripProposedChangeRow {
     id: string;
     action: string;
     payload: unknown;
-    status: 'proposed' | 'applied' | 'rejected' | 'expired';
+    status: 'proposed' | 'applied' | 'rejected' | 'expired' | 'failed';
     diff_summary: string | null;
     proposed_by: string;
     proposed_at: string;

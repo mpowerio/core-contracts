@@ -43,7 +43,7 @@ export interface AuditEvent {
     /** ISO-8601 timestamp. */
     timestamp: string;
 }
-export type ProposedChangeStatus = 'proposed' | 'applied' | 'rejected' | 'expired';
+export type ProposedChangeStatus = 'proposed' | 'applied' | 'rejected' | 'expired' | 'failed';
 export interface ProposedChange<TAction extends string = string, TPayload = unknown> {
     id: string;
     action: TAction;

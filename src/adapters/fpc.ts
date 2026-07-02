@@ -1,23 +1,50 @@
 /**
  * FPC adapter — maps FPC Construction (Lineage B) local row shapes INTO the
- * cross-vertical contract envelopes. Note the source columns DIFFER from JBET
- * (e.g. `created_at` here vs `proposed_at` there) yet both normalize to the
- * SAME envelope — that normalization IS the seam.
- * STUB: returns placeholder values so the spec fails first (TDD red).
+ * cross-vertical contract envelopes.
+ *
+ * The `estimate_proposed_changes` mapping is written against FPC's REAL schema
+ * (migrations 022 + 023), verified against the table's first production
+ * consumer. The columns differ from JBET's proposed-change table, yet both
+ * normalize to the SAME `ProposedChange` envelope — that normalization IS the
+ * seam. Real column → envelope field:
+ *   proposed_at              → proposedAt
+ *   params (jsonb)           → payload
+ *   diff.summary (nested)    → diffSummary
+ *   proposed_by_message_id   → (unused; a message backlink, NOT an actor. FPC
+ *                               records no per-proposal actor — every row is
+ *                               agent-proposed, so proposedBy is 'agent'.)
+ *   applied_at | rejected_at → resolvedAt (split by outcome; no resolver actor,
+ *                               so resolvedBy is always omitted.)
+ *   status                   → status (incl. 'failed', migration 023.)
  */
-import type { ProposedChange, ArtifactRecord, ArtifactStatus } from '../index.js';
+import type { ProposedChange, ProposedChangeStatus, ArtifactRecord, ArtifactStatus } from '../index.js';
 
-/** Shape of a row from FPC `estimate_proposed_changes`. */
+/** The four FPC propose_change actions (migration 022 CHECK + src/lib/chat/tools.ts). */
+export type FpcProposedAction =
+  | 'update_line_item'
+  | 'remove_line_item'
+  | 'add_line_item'
+  | 'update_estimate_field';
+
+/**
+ * Shape of a row from FPC `estimate_proposed_changes`, exactly as stored
+ * (migrations 022 + 023). After 023 the DB CHECK admits the same five statuses
+ * as the shared `ProposedChangeStatus`, so the row's `status` is typed to it.
+ */
 export interface FpcEstimateProposedChangeRow {
   id: string;
-  action: string;
-  payload: unknown;
-  status: 'proposed' | 'applied' | 'rejected' | 'expired';
-  diff_summary: string | null;
-  proposed_by: string;
-  created_at: string;
-  resolved_by: string | null;
-  resolved_at: string | null;
+  estimate_id: string;
+  proposed_at: string;
+  /** Backlink to the assistant turn that produced this proposal — NOT an actor. */
+  proposed_by_message_id: string | null;
+  action: FpcProposedAction;
+  /** Action-specific parameters (jsonb) — the real column is `params`. */
+  params: unknown;
+  /** jsonb; carries a human-readable `.summary` for the confirmation card. */
+  diff: { summary?: string } & Record<string, unknown>;
+  status: ProposedChangeStatus;
+  applied_at: string | null;
+  rejected_at: string | null;
 }
 
 /** Shape of a row from FPC `proposals`. */
@@ -28,19 +55,21 @@ export interface FpcProposalRow {
   share_token: string | null;
 }
 
-export function fpcProposedChange(row: FpcEstimateProposedChangeRow): ProposedChange {
+export function fpcProposedChange(
+  row: FpcEstimateProposedChangeRow,
+): ProposedChange<FpcProposedAction> {
+  // FPC splits resolution by outcome; only applied/rejected record a time.
+  const resolvedAt = row.applied_at ?? row.rejected_at;
   return {
     id: row.id,
     action: row.action,
-    payload: row.payload,
+    payload: row.params,
     status: row.status,
-    proposedBy: row.proposed_by,
-    // The seam: FPC's `created_at` normalizes to the same envelope field JBET
-    // populates from `proposed_at`.
-    proposedAt: row.created_at,
-    ...(row.diff_summary !== null ? { diffSummary: row.diff_summary } : {}),
-    ...(row.resolved_by !== null ? { resolvedBy: row.resolved_by } : {}),
-    ...(row.resolved_at !== null ? { resolvedAt: row.resolved_at } : {}),
+    // FPC v1a records no per-proposal actor — every row is agent-proposed.
+    proposedBy: 'agent',
+    proposedAt: row.proposed_at,
+    ...(row.diff.summary ? { diffSummary: row.diff.summary } : {}),
+    ...(resolvedAt !== null ? { resolvedAt } : {}),
   };
 }
 
