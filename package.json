@@ -1,6 +1,6 @@
 {
   "name": "@mpowerio/core-contracts",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Pure-TypeScript cross-vertical contract envelopes for the mpowerio Vertical Factory. ZERO React / Supabase-client / framework deps by design.",
   "type": "module",
   "main": "dist/index.js",

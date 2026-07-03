@@ -19,9 +19,9 @@ Dual-verified first extraction step (Claude seam-diff `VERTICAL-FACTORY-SEAM-DIF
 Shared-core is "real" only if **both JBET and FPC import + type-check this package WITHOUT pulling React/Next/Supabase or any vertical noun.** Status:
 - [x] Package type-checks standalone, strict (+`exactOptionalPropertyTypes`), zero framework deps (`npm run typecheck` → exit 0)
 - [x] `lintGrants` TDD'd (7/7)
-- [x] **JBET adapter** (`src/adapters/jbet.ts`) — trip_proposed_changes → `ProposedChange`; gamma_presentations → `ArtifactRecord`
+- [x] **JBET adapter** (`src/adapters/jbet.ts`) — trip_proposed_changes → `ProposedChange`, mapped to JBET's **real** schema (portal migration 065: `created_at`, nested `diff.summary`, `applied_at`/`applied_by`, actor `proposed_by`); gamma_presentations → `ArtifactRecord` (real status union `draft|shared|archived|generating|failed` incl. the JBE-025 poller's terminal `failed` per portal migration 20260628_001; no `last_checked_at` — fixed in **v0.3.0**)
 - [x] **FPC adapter** (`src/adapters/fpc.ts`) — estimate_proposed_changes → `ProposedChange`, mapped to FPC's **real** schema (migrations 022+023: `proposed_at`, `params`, nested `diff.summary`, split `applied_at`/`rejected_at`, agent-only `proposedBy`); proposals → `ArtifactRecord`
-- [x] **shared proposal/apply + shared artifact tests run against BOTH adapters** (`src/adapters/adapters.test.ts`, 13/13) — incl. a cross-vertical test collecting both into one homogeneous `ProposedChange[]`, and `'failed'` round-trips for both verticals
+- [x] **shared proposal/apply + shared artifact tests run against BOTH adapters** (`src/adapters/adapters.test.ts`, 17/17) — incl. a cross-vertical test collecting both into one homogeneous `ProposedChange[]`, and `'failed'` round-trips for both verticals
 - [~] **Both REAL apps compile against the package** — FPC's first real consumer (parkerman5000/fpc-construction-crm#89) surfaced two v0.1.0 defects, both fixed in **v0.2.0** (real FPC row schema + `'failed'` status); the full cross-repo import is pending the distribution decision below
 - [ ] grant-lint wired into both migration folders (next: dogfood on FPC via #FPC-R18-1)
 
