@@ -20,6 +20,39 @@ export {
   type LintSeverity,
 } from './grants.js';
 
+// ── MOC clover leaf contract: the honest ReadableLeaf / ArmableLeaf split ──
+export {
+  isArmable,
+  type LeafId,
+  type LeafHealth,
+  type LeafStatus,
+  type RunSummary,
+  type ApprovalCard,
+  type Receipt,
+  type Spend,
+  type ReadableLeaf,
+  type ArmableLeaf,
+} from './moc/leaf.js';
+
+// ── MOC leaf adapters: newsjack (ArmableLeaf) + AR (ReadableLeaf) variance tests ──
+export {
+  NewsjackLeaf,
+  DEFAULT_SQUAWK_STATE_FILE,
+  type NewsjackStore,
+  type SquawkStateShape,
+  type NewsjackDraftRef,
+} from './adapters/moc/newsjack.js';
+export {
+  ArLeaf,
+  parseBrief,
+  DEFAULT_AR_BRIEF_FILE,
+  DEFAULT_AR_BILLING_LOG,
+  type ArStore,
+  type ParsedBrief,
+  type ArOverdueRow,
+  type ArPaidRow,
+} from './adapters/moc/ar.js';
+
 // ── TenantConfig: identity + deployment metadata for one tenant ──
 export interface TenantConfig {
   slug: string;
