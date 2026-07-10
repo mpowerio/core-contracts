@@ -34,14 +34,14 @@ export {
   type ArmableLeaf,
 } from './moc/leaf.js';
 
-// ── MOC leaf adapters: newsjack (ArmableLeaf) + AR (ReadableLeaf) variance tests ──
+// ── MOC leaf adapters: reaction (ArmableLeaf) + AR (ReadableLeaf) variance tests ──
 export {
-  NewsjackLeaf,
+  ReactionLeaf,
   DEFAULT_SQUAWK_STATE_FILE,
-  type NewsjackStore,
+  type ReactionStore,
   type SquawkStateShape,
-  type NewsjackDraftRef,
-} from './adapters/moc/newsjack.js';
+  type ReactionDraftRef,
+} from './adapters/moc/reaction.js';
 export {
   ArLeaf,
   parseBrief,

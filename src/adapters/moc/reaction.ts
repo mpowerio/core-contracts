@@ -1,13 +1,13 @@
 /**
- * Newsjack (squawk-scan) MOC adapter — maps the @SquawkCNBC reaction lane's
+ * Reaction (squawk-scan) MOC adapter — maps the @SquawkCNBC reaction lane's
  * EXISTING state INTO the leaf contract. This is the ARMABLE variance test: the
- * newsjack leaf has a real operator-approvable fire path, so it implements
+ * reaction leaf has a real operator-approvable fire path, so it implements
  * ArmableLeaf.
  *
  * READ-MAPPER over what the leaf ALREADY ships — it does NOT rewrite the leaf.
  * The concrete effects (read the squawk state.json, read/flip the AUTO_ARM
  * flag, enumerate the pending drafts, approve one) are injected as a
- * `NewsjackStore` — the same "pure core + injected effects" pattern squawk's own
+ * `ReactionStore` — the same "pure core + injected effects" pattern squawk's own
  * tick.ts uses (TickDeps). That keeps THIS package pure TypeScript (the repo's
  * tsconfig has `types: []` — no node types available), makes the leaf unit-
  * testable with an in-memory fixture store, and keeps every real file path in
@@ -53,7 +53,7 @@ export interface SquawkStateShape {
  * One squawk draft staged `pending_approval` — a `drafts/<slug>/` dir the leaf
  * wrote (post.txt + provenance.json). `slug` is the stable id fire() approves.
  */
-export interface NewsjackDraftRef {
+export interface ReactionDraftRef {
   /** The draft slug (drafts/<slug>/) — stable id passed back to fire(). */
   slug: string;
   /** ISO-8601 when the draft was written (provenance.draftedAt). */
@@ -65,13 +65,13 @@ export interface NewsjackDraftRef {
 }
 
 /**
- * The injected effects the newsjack leaf maps over — the consuming MOC app wires
+ * The injected effects the reaction leaf maps over — the consuming MOC app wires
  * these to the real squawk state.json, the AUTO_ARM flag file, and the Marketing
  * drafts dir; tests wire them to in-memory fixtures. Read effects are synchronous
  * file reads (the leaf wraps them in the async, non-throwing contract); the
  * adapter is responsible for never letting a read effect's throw escape.
  */
-export interface NewsjackStore {
+export interface ReactionStore {
   /** Parsed squawk state.json, or null if the file is absent/unreadable. */
   readState(): SquawkStateShape | null;
   /** Current AUTO_ARM-equivalent flag (the MOC-owned arm override). */
@@ -79,18 +79,18 @@ export interface NewsjackStore {
   /** Set the AUTO_ARM-equivalent flag (arm mutation). */
   setArmed(on: boolean): void;
   /** Enumerate drafts currently staged `pending_approval`. */
-  listPending(): NewsjackDraftRef[];
+  listPending(): ReactionDraftRef[];
   /** Flip ONE draft `pending_approval` → `approved` (the one-item load-draft --arm). */
   approve(slug: string): void;
 }
 
-const LEAF = 'newsjack' as const;
+const LEAF = 'reaction' as const;
 
-/** Newsjack leaf — the ARMABLE clover variance test. */
-export class NewsjackLeaf implements ArmableLeaf {
+/** Reaction leaf — the ARMABLE clover variance test. */
+export class ReactionLeaf implements ArmableLeaf {
   readonly id = LEAF;
 
-  constructor(private readonly store: NewsjackStore) {}
+  constructor(private readonly store: ReactionStore) {}
 
   async status(): Promise<LeafStatus> {
     try {
@@ -101,18 +101,18 @@ export class NewsjackLeaf implements ArmableLeaf {
       let summary: string;
       if (state === null) {
         health = 'idle';
-        summary = 'newsjack: no state yet — has never run';
+        summary = 'reaction: no state yet — has never run';
       } else if (pending.length > 0) {
         health = 'attention';
-        summary = `newsjack: ${pending.length} draft(s) pending approval`;
+        summary = `reaction: ${pending.length} draft(s) pending approval`;
       } else {
         health = 'ok';
-        summary = armed ? 'newsjack: armed, no drafts pending' : 'newsjack: idle-ready, no drafts pending';
+        summary = armed ? 'reaction: armed, no drafts pending' : 'reaction: idle-ready, no drafts pending';
       }
       return { leaf: LEAF, health, armed, pendingCount: pending.length, summary };
     } catch {
       // Read contract: NEVER throw — a broken store degrades to 'unknown'.
-      return { leaf: LEAF, health: 'unknown', armed: false, pendingCount: 0, summary: 'newsjack: status unavailable' };
+      return { leaf: LEAF, health: 'unknown', armed: false, pendingCount: 0, summary: 'reaction: status unavailable' };
     }
   }
 
@@ -183,7 +183,7 @@ export class NewsjackLeaf implements ArmableLeaf {
   async fire(approvalId: string): Promise<void> {
     const exists = this.store.listPending().some((d) => d.slug === approvalId);
     if (!exists) {
-      throw new Error(`newsjack.fire: no pending draft with id '${approvalId}' (already approved, expired, or never existed)`);
+      throw new Error(`reaction.fire: no pending draft with id '${approvalId}' (already approved, expired, or never existed)`);
     }
     this.store.approve(approvalId);
   }

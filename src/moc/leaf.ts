@@ -2,7 +2,7 @@
  * MOC leaf contract — the honest, roast-hardened split for the 🍀 clover.
  *
  * MOC = the operator-facing STEM (arm / approve / watch) sitting over four
- * engine-LEAVES (content · packet · AR · newsjack). The stem READS status and
+ * engine-LEAVES (content · packet · AR · reaction). The stem READS status and
  * DISPATCHES approved actions; it NEVER reasons or generates — that keeps the
  * doer≠reviewer moat intact.
  *
@@ -13,7 +13,7 @@
  *     methods may throw BY DESIGN: a broken/absent data source degrades to a
  *     safe envelope (health 'unknown'), it never rejects. A dead leaf must not
  *     crash the stem's status sweep.
- *   • ArmableLeaf  — extends ReadableLeaf with arm/fire. ONLY content, newsjack,
+ *   • ArmableLeaf  — extends ReadableLeaf with arm/fire. ONLY content, reaction,
  *     and AR-once-retrofitted implement it. The packet leaf is ReadableLeaf
  *     ONLY — it has NO fire surface BY TYPE (the PII firewall is a property of
  *     the type, not a runtime landmine). In THIS phase AR is also ReadableLeaf
@@ -30,7 +30,7 @@
  */
 
 /** The four clover engine-leaves. */
-export type LeafId = 'content' | 'packet' | 'ar' | 'newsjack';
+export type LeafId = 'content' | 'packet' | 'ar' | 'reaction';
 
 /**
  * Coarse health for the stem's at-a-glance card.
@@ -126,7 +126,7 @@ export interface ReadableLeaf {
 
 /**
  * ReadableLeaf + the arm/fire dispatch surface. ONLY leaves that actually have
- * an operator-approvable fire path implement this (content · newsjack · and AR
+ * an operator-approvable fire path implement this (content · reaction · and AR
  * after the Phase-4 --json retrofit). The packet leaf NEVER does — its PII
  * firewall is a type property, not a runtime guard.
  *

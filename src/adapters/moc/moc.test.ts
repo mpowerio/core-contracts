@@ -1,16 +1,16 @@
 import { describe, it, expect } from 'vitest';
 import {
-  NewsjackLeaf,
-  type NewsjackStore,
+  ReactionLeaf,
+  type ReactionStore,
   type SquawkStateShape,
-  type NewsjackDraftRef,
-} from './newsjack.js';
+  type ReactionDraftRef,
+} from './reaction.js';
 import { ArLeaf, parseBrief, type ArStore } from './ar.js';
 import { isArmable, type ReadableLeaf } from '../../moc/leaf.js';
 
 /**
  * THE MOC CLOVER VARIANCE TEST (§5 pass criterion, in code): the SINGLE leaf
- * contract must carry BOTH shapes cleanly — an ARMABLE leaf (newsjack, with a
+ * contract must carry BOTH shapes cleanly — an ARMABLE leaf (reaction, with a
  * real operator-approvable fire path) and a READ-ONLY leaf (AR, no fire surface
  * yet) — in the same ReadableLeaf[], discriminated by the `isArmable` type guard
  * (presence of arm/fire), NEVER by try/catch on a throwing stub. If this passes
@@ -20,11 +20,11 @@ import { isArmable, type ReadableLeaf } from '../../moc/leaf.js';
 
 // ── In-memory fixture stores (tests NEVER touch the real leaf files) ──
 
-function makeNewsjackStore(init: {
+function makeReactionStore(init: {
   state: SquawkStateShape | null;
   armed?: boolean;
-  pending?: NewsjackDraftRef[];
-}): NewsjackStore & { armed: boolean; approved: string[]; pending: NewsjackDraftRef[] } {
+  pending?: ReactionDraftRef[];
+}): ReactionStore & { armed: boolean; approved: string[]; pending: ReactionDraftRef[] } {
   return {
     state: init.state,
     armed: init.armed ?? false,
@@ -46,7 +46,7 @@ function makeNewsjackStore(init: {
       this.approved.push(slug);
       this.pending = this.pending.filter((d) => d.slug !== slug);
     },
-  } as NewsjackStore & { state: SquawkStateShape | null; armed: boolean; approved: string[]; pending: NewsjackDraftRef[] };
+  } as ReactionStore & { state: SquawkStateShape | null; armed: boolean; approved: string[]; pending: ReactionDraftRef[] };
 }
 
 // Real Daily Money Brief shape (ar-watch.sh print block, lines 306-338), pinned
@@ -95,7 +95,7 @@ const SQUAWK_STATE: SquawkStateShape = {
   lastRunISO: '2026-07-10T10:13:00Z',
 };
 
-const PENDING: NewsjackDraftRef[] = [
+const PENDING: ReactionDraftRef[] = [
   {
     slug: 'squawk-1833333333-20260710',
     createdISO: '2026-07-10T10:13:05Z',
@@ -106,11 +106,11 @@ const PENDING: NewsjackDraftRef[] = [
 
 describe('MOC clover — THE KEYSTONE variance test', () => {
   it('carries an armable AND a read-only leaf in ONE ReadableLeaf[], discriminated by isArmable with no try/catch', async () => {
-    const newsjack = new NewsjackLeaf(makeNewsjackStore({ state: SQUAWK_STATE, armed: true, pending: PENDING }));
+    const reaction = new ReactionLeaf(makeReactionStore({ state: SQUAWK_STATE, armed: true, pending: PENDING }));
     const ar = new ArLeaf(makeArStore(BRIEF_FIXTURE));
 
     // Both shapes coexist in ONE homogeneous list of the SINGLE contract type.
-    const leaves: ReadableLeaf[] = [newsjack, ar];
+    const leaves: ReadableLeaf[] = [reaction, ar];
 
     // Iterate calling EVERY read method on BOTH — no special-casing, no try/catch.
     for (const leaf of leaves) {
@@ -127,7 +127,7 @@ describe('MOC clover — THE KEYSTONE variance test', () => {
     }
 
     // The honest structural discrimination — presence of arm/fire, NOT a throw.
-    expect(isArmable(newsjack)).toBe(true);
+    expect(isArmable(reaction)).toBe(true);
     expect(isArmable(ar)).toBe(false);
 
     // Only the armable leaf exposes arm/fire; the guard narrows the type so the
@@ -140,13 +140,13 @@ describe('MOC clover — THE KEYSTONE variance test', () => {
         armedCount++;
       }
     }
-    expect(armedCount).toBe(1); // exactly the newsjack leaf
+    expect(armedCount).toBe(1); // exactly the reaction leaf
   });
 });
 
-describe('NewsjackLeaf (ArmableLeaf)', () => {
+describe('ReactionLeaf (ArmableLeaf)', () => {
   it('reports pending drafts + armed state from the squawk state.json read-map', async () => {
-    const leaf = new NewsjackLeaf(makeNewsjackStore({ state: SQUAWK_STATE, armed: true, pending: PENDING }));
+    const leaf = new ReactionLeaf(makeReactionStore({ state: SQUAWK_STATE, armed: true, pending: PENDING }));
     const status = await leaf.status();
     expect(status.health).toBe('attention');
     expect(status.armed).toBe(true);
@@ -155,13 +155,13 @@ describe('NewsjackLeaf (ArmableLeaf)', () => {
     const cards = await leaf.pendingApprovals();
     expect(cards).toHaveLength(1);
     expect(cards[0]!.id).toBe('squawk-1833333333-20260710');
-    expect(cards[0]!.leaf).toBe('newsjack');
+    expect(cards[0]!.leaf).toBe('reaction');
     expect(cards[0]!.title).toContain('1833333333');
     expect(cards[0]!.preview).toContain('Fed just blinked');
   });
 
   it('maps lastRunISO/seen count into the RunSummary', async () => {
-    const leaf = new NewsjackLeaf(makeNewsjackStore({ state: SQUAWK_STATE }));
+    const leaf = new ReactionLeaf(makeReactionStore({ state: SQUAWK_STATE }));
     const run = await leaf.lastRun();
     expect(run.lastRunISO).toBe('2026-07-10T10:13:00Z');
     expect(run.outcome).toBe('ok');
@@ -169,8 +169,8 @@ describe('NewsjackLeaf (ArmableLeaf)', () => {
   });
 
   it('arm(on) flips the AUTO_ARM-equivalent flag', async () => {
-    const store = makeNewsjackStore({ state: SQUAWK_STATE, armed: false });
-    const leaf = new NewsjackLeaf(store);
+    const store = makeReactionStore({ state: SQUAWK_STATE, armed: false });
+    const leaf = new ReactionLeaf(store);
     expect((await leaf.status()).armed).toBe(false);
     await leaf.arm(true);
     expect(store.armed).toBe(true);
@@ -178,8 +178,8 @@ describe('NewsjackLeaf (ArmableLeaf)', () => {
   });
 
   it('fire(id) approves an existing pending draft (draft→approved)', async () => {
-    const store = makeNewsjackStore({ state: SQUAWK_STATE, pending: PENDING });
-    const leaf = new NewsjackLeaf(store);
+    const store = makeReactionStore({ state: SQUAWK_STATE, pending: PENDING });
+    const leaf = new ReactionLeaf(store);
     await leaf.fire('squawk-1833333333-20260710');
     expect(store.approved).toEqual(['squawk-1833333333-20260710']);
     // The approved draft leaves the pending queue.
@@ -187,33 +187,33 @@ describe('NewsjackLeaf (ArmableLeaf)', () => {
   });
 
   it('fire(unknown id) REJECTS (mutations may throw — unlike the read contract)', async () => {
-    const leaf = new NewsjackLeaf(makeNewsjackStore({ state: SQUAWK_STATE, pending: PENDING }));
+    const leaf = new ReactionLeaf(makeReactionStore({ state: SQUAWK_STATE, pending: PENDING }));
     await expect(leaf.fire('does-not-exist')).rejects.toThrow(/no pending draft/);
   });
 
   it('receipts() emits a tick_ran receipt only at/after sinceISO (non-throwing)', async () => {
-    const leaf = new NewsjackLeaf(makeNewsjackStore({ state: SQUAWK_STATE }));
+    const leaf = new ReactionLeaf(makeReactionStore({ state: SQUAWK_STATE }));
     expect(await leaf.receipts('2000-01-01T00:00:00Z')).toHaveLength(1);
     // sinceISO after the last run → filtered out.
     expect(await leaf.receipts('2026-07-11T00:00:00Z')).toHaveLength(0);
   });
 
   it('degrades to health "idle" when no state.json exists (never run) — read contract holds', async () => {
-    const leaf = new NewsjackLeaf(makeNewsjackStore({ state: null }));
+    const leaf = new ReactionLeaf(makeReactionStore({ state: null }));
     const status = await leaf.status();
     expect(status.health).toBe('idle');
     expect((await leaf.lastRun()).lastRunISO).toBeNull();
   });
 
   it('NEVER throws from a read method even when the store throws (degrades to "unknown")', async () => {
-    const brokenStore: NewsjackStore = {
+    const brokenStore: ReactionStore = {
       readState() { throw new Error('disk gone'); },
       readArmed() { throw new Error('disk gone'); },
       setArmed() {},
       listPending() { throw new Error('disk gone'); },
       approve() {},
     };
-    const leaf = new NewsjackLeaf(brokenStore);
+    const leaf = new ReactionLeaf(brokenStore);
     const status = await leaf.status(); // must resolve, not reject
     expect(status.health).toBe('unknown');
     expect(await leaf.pendingApprovals()).toEqual([]);
