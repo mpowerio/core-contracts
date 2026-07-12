@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import {
   ArRailLeaf,
   parseBillingLog,
+  resolveArPaths,
   type ArRailStore,
   DEFAULT_AR_DISARM_SENTINELS,
   DEFAULT_AR_DISARM_ENV,
@@ -327,5 +328,50 @@ describe('default rail paths', () => {
       '/home/maestro/.ar-disarmed',
     ]);
     expect(DEFAULT_AR_DISARM_ENV).toBe('AR_DISARMED');
+  });
+});
+
+// ── resolveArPaths: portability off /home/maestro (override → env → default) ─
+
+describe('resolveArPaths', () => {
+  it('falls back to the documented defaults with no overrides and empty env', () => {
+    expect(resolveArPaths()).toEqual({
+      briefFile: '/home/maestro/projects/mpowerio-ar/latest-brief.txt',
+      billingLog: '/home/maestro/projects/mpowerio-ar/ar-monthly-billing.log',
+      disarmSentinels: DEFAULT_AR_DISARM_SENTINELS,
+      disarmEnv: 'AR_DISARMED',
+    });
+  });
+
+  it('env vars override the hard-coded defaults (the actual portability fix)', () => {
+    const r = resolveArPaths(
+      {},
+      {
+        AR_BRIEF_FILE: '/srv/ar/brief.txt',
+        AR_BILLING_LOG: '/srv/ar/billing.log',
+        AR_DISARM_SENTINELS: '/srv/ar/DISARMED:/etc/ar-disarmed',
+        AR_DISARM_ENV: 'SRV_AR_DISARMED',
+      },
+    );
+    expect(r.briefFile).toBe('/srv/ar/brief.txt');
+    expect(r.billingLog).toBe('/srv/ar/billing.log');
+    expect(r.disarmSentinels).toEqual(['/srv/ar/DISARMED', '/etc/ar-disarmed']);
+    expect(r.disarmEnv).toBe('SRV_AR_DISARMED');
+  });
+
+  it('explicit overrides beat env, and env fills the un-overridden gaps', () => {
+    const r = resolveArPaths(
+      { briefFile: '/o/brief', disarmSentinels: ['/o/DISARMED'] },
+      { AR_BRIEF_FILE: '/env/brief', AR_BILLING_LOG: '/env/billing' },
+    );
+    expect(r.briefFile).toBe('/o/brief'); // override wins over env
+    expect(r.billingLog).toBe('/env/billing'); // env fills the gap
+    expect(r.disarmSentinels).toEqual(['/o/DISARMED']);
+    expect(r.disarmEnv).toBe('AR_DISARMED'); // untouched → default
+  });
+
+  it('drops empty segments when splitting AR_DISARM_SENTINELS', () => {
+    const r = resolveArPaths({}, { AR_DISARM_SENTINELS: '/a::/b:' });
+    expect(r.disarmSentinels).toEqual(['/a', '/b']);
   });
 });

@@ -24,6 +24,7 @@
  *               `pending_approval` until load-draft --arm flips the calendar row
  *               to `approved`  → pendingApprovals() / fire(id) (one-item --arm)
  */
+import { ARMABLE_BRAND } from '../../moc/leaf.js';
 import type {
   ApprovalCard,
   ArmableLeaf,
@@ -89,6 +90,8 @@ const LEAF = 'reaction' as const;
 /** Reaction leaf — the ARMABLE clover variance test. */
 export class ReactionLeaf implements ArmableLeaf {
   readonly id = LEAF;
+  /** Deliberate armable brand — see ARMABLE_BRAND. Without it isArmable() rejects this leaf. */
+  readonly [ARMABLE_BRAND] = true;
 
   constructor(private readonly store: ReactionStore) {}
 

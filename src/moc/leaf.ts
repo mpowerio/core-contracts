@@ -100,7 +100,10 @@ export interface Spend {
   leaf: LeafId;
   /** ISO-4217 currency code, e.g. 'USD'. */
   currency: string;
-  /** Amount in major units (dollars), meaning defined by `basis`. */
+  /**
+   * Amount in the MAJOR units of `currency` (e.g. dollars for USD, euros for
+   * EUR — never assume dollars), with its meaning defined by `basis`.
+   */
   amount: number;
   /** What the amount denotes, e.g. 'outstanding_ar' | 'llm_tokens_usd'. */
   basis: string;
@@ -125,6 +128,17 @@ export interface ReadableLeaf {
 }
 
 /**
+ * NOMINAL BRAND for ArmableLeaf. A leaf becomes armable ONLY by deliberately
+ * carrying this symbol — you cannot set it without importing it, so a plain
+ * object that merely happens to expose `arm`/`fire` methods (accidental duck-
+ * typing) can never masquerade as armable and slip past `isArmable` into the
+ * fire dispatch. This makes the money/PII firewall a DELIBERATE opt-in, not an
+ * accident of method names: an implementor who did not mean to be armable will
+ * not be, and `arm`/`fire` typos on a read-only leaf stay inert.
+ */
+export const ARMABLE_BRAND: unique symbol = Symbol('mpowerio.core-contracts/ArmableLeaf');
+
+/**
  * ReadableLeaf + the arm/fire dispatch surface. ONLY leaves that actually have
  * an operator-approvable fire path implement this (content · reaction · and AR
  * after the Phase-4 --json retrofit). The packet leaf NEVER does — its PII
@@ -134,6 +148,12 @@ export interface ReadableLeaf {
  * approval SHOULD surface as an error, not a silent no-op.
  */
 export interface ArmableLeaf extends ReadableLeaf {
+  /**
+   * Nominal brand (see {@link ARMABLE_BRAND}). Always `true` on a deliberate
+   * implementation; its presence is what `isArmable` gates on, so a leaf must
+   * import the symbol and set this field to be dispatchable.
+   */
+  readonly [ARMABLE_BRAND]: true;
   /** Turn unattended auto-fire on/off (the AUTO_ARM-equivalent for the leaf). */
   arm(on: boolean): Promise<void>;
   /** Fire one approved item by its ApprovalCard id. Rejects on an unknown id. */
@@ -141,12 +161,18 @@ export interface ArmableLeaf extends ReadableLeaf {
 }
 
 /**
- * Discriminate an ArmableLeaf from a plain ReadableLeaf by the PRESENCE of both
- * arm and fire — the honest structural test, NOT a try/catch on a method that
- * throws. This is how the stem decides whether to render arm/fire controls: no
- * exceptions, and TypeScript narrows the type for callers inside the guard.
+ * Discriminate an ArmableLeaf from a plain ReadableLeaf. The test is the
+ * NOMINAL BRAND plus the presence of both arm and fire — NOT a try/catch on a
+ * method that throws, and NOT bare structural duck-typing (which would let an
+ * accidental arm/fire pair pass). This is how the stem decides whether to
+ * render arm/fire controls: no exceptions, and TypeScript narrows the type for
+ * callers inside the guard.
  */
 export function isArmable(leaf: ReadableLeaf): leaf is ArmableLeaf {
   const maybe = leaf as Partial<ArmableLeaf>;
-  return typeof maybe.arm === 'function' && typeof maybe.fire === 'function';
+  return (
+    maybe[ARMABLE_BRAND] === true &&
+    typeof maybe.arm === 'function' &&
+    typeof maybe.fire === 'function'
+  );
 }
