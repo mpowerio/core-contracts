@@ -68,6 +68,13 @@ export interface ResolvedArPaths {
  * operator's `/home/maestro` layout without a fork — the DEFAULT_AR_* constants
  * are only defaults, never the sole option.
  *
+ * PRESENCE != VALUE at every tier (env AND overrides): a defined-but-blank or
+ * whitespace-only scalar, and a sentinel list that trims to nothing, are treated
+ * as ABSENT and fall through — a blank deployment variable can NEVER empty a
+ * path or silently strip the disarm sentinels. (Overrides are normalized too,
+ * for consistency: an explicit `briefFile: ''` or `disarmSentinels: []` is a
+ * config mistake, not an instruction to break the rail.)
+ *
  * `env` is the CONSUMER'S process.env, passed in: this package deliberately
  * carries no node types and never touches `process` itself, so the caller hands
  * the environment across the boundary (the same injected-effects posture as the
