@@ -10,6 +10,10 @@
  * Codex roast: extract contracts + small adapter interfaces, NOT shared UI/DB.
  */
 export { lintGrants, type MigrationGrantSpec, type GrantPrivilege, type GrantRole, type GrantLintFinding, type LintSeverity, } from './grants.js';
+export { isArmable, ARMABLE_BRAND, type LeafId, type LeafHealth, type LeafStatus, type RunSummary, type ApprovalCard, type Receipt, type Spend, type ReadableLeaf, type ArmableLeaf, } from './moc/leaf.js';
+export { ReactionLeaf, DEFAULT_SQUAWK_STATE_FILE, type ReactionStore, type SquawkStateShape, type ReactionDraftRef, } from './adapters/moc/reaction.js';
+export { parseBrief, DEFAULT_AR_BRIEF_FILE, DEFAULT_AR_BILLING_LOG, type ArStore, type ParsedBrief, type ArOverdueRow, type ArPaidRow, } from './adapters/moc/ar.js';
+export { ArRailLeaf, parseBillingLog, resolveArPaths, DEFAULT_AR_DISARM_SENTINELS, DEFAULT_AR_DISARM_ENV, type ArRailStore, type BillingLogEntry, type ArPathOverrides, type ResolvedArPaths, } from './adapters/moc/ar-rail.js';
 export interface TenantConfig {
     slug: string;
     displayName: string;

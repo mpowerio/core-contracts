@@ -43,7 +43,13 @@ import type {
   RunSummary,
   Spend,
 } from '../../moc/leaf.js';
-import { parseBrief, type ArStore, type ParsedBrief } from './ar.js';
+import {
+  parseBrief,
+  DEFAULT_AR_BRIEF_FILE,
+  DEFAULT_AR_BILLING_LOG,
+  type ArStore,
+  type ParsedBrief,
+} from './ar.js';
 
 const LEAF = 'ar' as const;
 
@@ -58,6 +64,96 @@ export const DEFAULT_AR_DISARM_SENTINELS = [
   '/home/maestro/.ar-disarmed',
 ] as const;
 export const DEFAULT_AR_DISARM_ENV = 'AR_DISARMED';
+
+/**
+ * Explicit path overrides for wiring the AR rail store. Everything is optional;
+ * an omitted field falls through to the env var, then the documented default.
+ */
+export interface ArPathOverrides {
+  briefFile?: string;
+  billingLog?: string;
+  disarmSentinels?: readonly string[];
+  disarmEnv?: string;
+}
+
+/** A fully-resolved AR rail file wiring — what the consuming store binds `fs` to. */
+export interface ResolvedArPaths {
+  briefFile: string;
+  billingLog: string;
+  disarmSentinels: readonly string[];
+  disarmEnv: string;
+}
+
+/**
+ * PRESENCE != VALUE: a defined-but-blank scalar (`""` or whitespace-only) is
+ * treated as ABSENT, so it falls through to the next precedence tier rather than
+ * resolving to an empty path. A blank `AR_BRIEF_FILE` must not become `''`.
+ * Returns the trimmed content, or undefined when there is none.
+ */
+function scalarOrUndefined(v: string | undefined): string | undefined {
+  if (v === undefined) return undefined;
+  const trimmed = v.trim();
+  return trimmed.length > 0 ? trimmed : undefined;
+}
+
+/**
+ * Normalize a sentinel list: trim every entry and drop the blanks. If NOTHING
+ * survives it returns undefined (fall through to the next tier) — NEVER `[]`,
+ * because an empty sentinel list silently removes the kill-switch check and lets
+ * the money rail report armed despite a DISARMED file. This is the core of the
+ * blocking fix: a malformed `AR_DISARM_SENTINELS=':'` must not defeat disarm.
+ */
+function sentinelListOrUndefined(raw: readonly string[] | undefined): readonly string[] | undefined {
+  if (raw === undefined) return undefined;
+  const cleaned = raw.map((s) => s.trim()).filter((s) => s.length > 0);
+  return cleaned.length > 0 ? cleaned : undefined;
+}
+
+/**
+ * Resolve the AR rail's file paths with precedence: explicit override → env var
+ * → documented default. This is what makes the package PORTABLE off the
+ * operator's `/home/maestro` layout without a fork — the DEFAULT_AR_* constants
+ * are only defaults, never the sole option.
+ *
+ * PRESENCE != VALUE at every tier (env AND overrides): a defined-but-blank or
+ * whitespace-only scalar, and a sentinel list that trims to nothing, are treated
+ * as ABSENT and fall through — a blank deployment variable can NEVER empty a
+ * path or silently strip the disarm sentinels. (Overrides are normalized too,
+ * for consistency: an explicit `briefFile: ''` or `disarmSentinels: []` is a
+ * config mistake, not an instruction to break the rail.)
+ *
+ * `env` is the CONSUMER'S process.env, passed in: this package deliberately
+ * carries no node types and never touches `process` itself, so the caller hands
+ * the environment across the boundary (the same injected-effects posture as the
+ * stores). Recognised keys: AR_BRIEF_FILE, AR_BILLING_LOG, AR_DISARM_SENTINELS
+ * (a ':'-separated path list, mirroring $PATH), AR_DISARM_ENV.
+ */
+export function resolveArPaths(
+  overrides: ArPathOverrides = {},
+  env: Record<string, string | undefined> = {},
+): ResolvedArPaths {
+  const envSentinel = scalarOrUndefined(env.AR_DISARM_SENTINELS);
+  const sentinelsFromEnv =
+    envSentinel === undefined ? undefined : sentinelListOrUndefined(envSentinel.split(':'));
+  return {
+    briefFile:
+      scalarOrUndefined(overrides.briefFile) ??
+      scalarOrUndefined(env.AR_BRIEF_FILE) ??
+      DEFAULT_AR_BRIEF_FILE,
+    billingLog:
+      scalarOrUndefined(overrides.billingLog) ??
+      scalarOrUndefined(env.AR_BILLING_LOG) ??
+      DEFAULT_AR_BILLING_LOG,
+    disarmSentinels:
+      sentinelListOrUndefined(overrides.disarmSentinels) ??
+      sentinelsFromEnv ??
+      DEFAULT_AR_DISARM_SENTINELS,
+    disarmEnv:
+      scalarOrUndefined(overrides.disarmEnv) ??
+      scalarOrUndefined(env.AR_DISARM_ENV) ??
+      DEFAULT_AR_DISARM_ENV,
+  };
+}
 
 /** Injected read effects — ArStore's brief/billing readers + the kill-switch probe. */
 export interface ArRailStore extends ArStore {

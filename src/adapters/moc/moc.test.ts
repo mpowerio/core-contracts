@@ -5,7 +5,8 @@ import {
   type SquawkStateShape,
   type ReactionDraftRef,
 } from './reaction.js';
-import { ArLeaf, parseBrief, type ArStore } from './ar.js';
+import { parseBrief } from './ar.js';
+import { ArRailLeaf } from './ar-rail.js';
 import { isArmable, type ReadableLeaf } from '../../moc/leaf.js';
 
 /**
@@ -84,10 +85,6 @@ const BRIEF_FIXTURE = `=========================================================
 ================================================================
 `;
 
-function makeArStore(brief: string | null, billingLog: string | null = null): ArStore {
-  return { readBrief: () => brief, readBillingLog: () => billingLog };
-}
-
 const SQUAWK_STATE: SquawkStateShape = {
   version: 1,
   seenTweetIds: ['1811111111', '1822222222'],
@@ -107,7 +104,13 @@ const PENDING: ReactionDraftRef[] = [
 describe('MOC clover — THE KEYSTONE variance test', () => {
   it('carries an armable AND a read-only leaf in ONE ReadableLeaf[], discriminated by isArmable with no try/catch', async () => {
     const reaction = new ReactionLeaf(makeReactionStore({ state: SQUAWK_STATE, armed: true, pending: PENDING }));
-    const ar = new ArLeaf(makeArStore(BRIEF_FIXTURE));
+    // The surviving canonical AR read-only leaf (ArRailLeaf) plays the read-only
+    // half of the variance; ArLeaf was retired in the de-vendor pass.
+    const ar = new ArRailLeaf({
+      readBrief: () => BRIEF_FIXTURE,
+      readBillingLog: () => null,
+      readDisarmed: () => null,
+    });
 
     // Both shapes coexist in ONE homogeneous list of the SINGLE contract type.
     const leaves: ReadableLeaf[] = [reaction, ar];
@@ -270,69 +273,5 @@ describe('parseBrief (pure text parser)', () => {
     expect(b.outstanding).toBeNull();
     expect(b.overdue).toEqual([]);
     expect(b.paid).toEqual([]);
-  });
-});
-
-describe('ArLeaf (ReadableLeaf ONLY — the read-only variance)', () => {
-  it('is NOT armable (no arm/fire by type)', () => {
-    const leaf = new ArLeaf(makeArStore(BRIEF_FIXTURE));
-    expect(isArmable(leaf)).toBe(false);
-  });
-
-  it('status = attention when invoices are overdue, with an outstanding summary', async () => {
-    const status = await new ArLeaf(makeArStore(BRIEF_FIXTURE)).status();
-    expect(status.leaf).toBe('ar');
-    expect(status.health).toBe('attention');
-    expect(status.armed).toBe(false);
-    expect(status.pendingCount).toBe(0);
-    expect(status.summary).toContain('2 overdue');
-    expect(status.summary).toContain('6627.01');
-  });
-
-  it('status = ok when nothing is overdue', async () => {
-    const clean = BRIEF_FIXTURE
-      .replace('Overdue          : 2 invoice(s)', 'Overdue          : 0 invoice(s)');
-    const status = await new ArLeaf(makeArStore(clean)).status();
-    expect(status.health).toBe('ok');
-  });
-
-  it('lastRun maps the brief date to a date-granular ISO run time', async () => {
-    const run = await new ArLeaf(makeArStore(BRIEF_FIXTURE)).lastRun();
-    expect(run.lastRunISO).toBe('2026-07-10T00:00:00Z');
-    expect(run.outcome).toBe('ok');
-    expect(run.detail).toContain('scanned 22');
-  });
-
-  it('spend maps outstanding AR into the Spend envelope', async () => {
-    const spend = await new ArLeaf(makeArStore(BRIEF_FIXTURE)).spend();
-    expect(spend).toEqual({
-      leaf: 'ar',
-      currency: 'USD',
-      amount: 6627.01,
-      basis: 'outstanding_ar',
-      asOfISO: '2026-07-10T00:00:00Z',
-    });
-  });
-
-  it('pendingApprovals is ALWAYS [] (read-only by type; Phase-4 --json retrofit)', async () => {
-    expect(await new ArLeaf(makeArStore(BRIEF_FIXTURE)).pendingApprovals()).toEqual([]);
-  });
-
-  it('receipts emits one invoice_overdue receipt per OVERDUE row, filtered by sinceISO', async () => {
-    const leaf = new ArLeaf(makeArStore(BRIEF_FIXTURE));
-    const receipts = await leaf.receipts('2000-01-01T00:00:00Z');
-    expect(receipts).toHaveLength(2);
-    expect(receipts.every((r) => r.kind === 'invoice_overdue')).toBe(true);
-    expect(receipts[0]!.ref).toBe('0010');
-    // sinceISO after the brief date → all overdue rows filtered out.
-    expect(await leaf.receipts('2026-07-11T00:00:00Z')).toHaveLength(0);
-  });
-
-  it('degrades to health "unknown" when the brief is absent — read contract holds', async () => {
-    const leaf = new ArLeaf(makeArStore(null));
-    const status = await leaf.status();
-    expect(status.health).toBe('unknown');
-    expect((await leaf.lastRun()).lastRunISO).toBeNull();
-    expect(await leaf.receipts('2000-01-01T00:00:00Z')).toEqual([]);
   });
 });

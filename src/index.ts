@@ -23,6 +23,7 @@ export {
 // ── MOC clover leaf contract: the honest ReadableLeaf / ArmableLeaf split ──
 export {
   isArmable,
+  ARMABLE_BRAND,
   type LeafId,
   type LeafHealth,
   type LeafStatus,
@@ -42,8 +43,8 @@ export {
   type SquawkStateShape,
   type ReactionDraftRef,
 } from './adapters/moc/reaction.js';
+// AR shared brief-parser primitives (the parser + row types + injected store surface).
 export {
-  ArLeaf,
   parseBrief,
   DEFAULT_AR_BRIEF_FILE,
   DEFAULT_AR_BILLING_LOG,
@@ -52,6 +53,19 @@ export {
   type ArOverdueRow,
   type ArPaidRow,
 } from './adapters/moc/ar.js';
+// AR canonical leaf: the surviving ReadableLeaf (PII-firewalled, billing-log +
+// kill-switch aware). Replaced the retired brief-only ArLeaf in the de-vendor pass.
+export {
+  ArRailLeaf,
+  parseBillingLog,
+  resolveArPaths,
+  DEFAULT_AR_DISARM_SENTINELS,
+  DEFAULT_AR_DISARM_ENV,
+  type ArRailStore,
+  type BillingLogEntry,
+  type ArPathOverrides,
+  type ResolvedArPaths,
+} from './adapters/moc/ar-rail.js';
 
 // ── TenantConfig: identity + deployment metadata for one tenant ──
 export interface TenantConfig {
