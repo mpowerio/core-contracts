@@ -11,4 +11,13 @@
  */
 // ── Rule-18 migration grant spec + linter (the one runtime-tested module) ──
 export { lintGrants, } from './grants.js';
+// ── MOC clover leaf contract: the honest ReadableLeaf / ArmableLeaf split ──
+export { isArmable, ARMABLE_BRAND, } from './moc/leaf.js';
+// ── MOC leaf adapters: reaction (ArmableLeaf) + AR (ReadableLeaf) variance tests ──
+export { ReactionLeaf, DEFAULT_SQUAWK_STATE_FILE, } from './adapters/moc/reaction.js';
+// AR shared brief-parser primitives (the parser + row types + injected store surface).
+export { parseBrief, DEFAULT_AR_BRIEF_FILE, DEFAULT_AR_BILLING_LOG, } from './adapters/moc/ar.js';
+// AR canonical leaf: the surviving ReadableLeaf (PII-firewalled, billing-log +
+// kill-switch aware). Replaced the retired brief-only ArLeaf in the de-vendor pass.
+export { ArRailLeaf, parseBillingLog, resolveArPaths, DEFAULT_AR_DISARM_SENTINELS, DEFAULT_AR_DISARM_ENV, } from './adapters/moc/ar-rail.js';
 //# sourceMappingURL=index.js.map
