@@ -375,3 +375,80 @@ describe('resolveArPaths', () => {
     expect(r.disarmSentinels).toEqual(['/a', '/b']);
   });
 });
+
+// ── presence != value: a blank/malformed env var must NOT defeat the kill-switch ─
+
+describe('resolveArPaths — presence != value normalization', () => {
+  it('(a) AR_BRIEF_FILE="" falls back to the default path (empty is not a value)', () => {
+    const r = resolveArPaths({}, { AR_BRIEF_FILE: '' });
+    expect(r.briefFile).toBe('/home/maestro/projects/mpowerio-ar/latest-brief.txt');
+  });
+
+  it('(a2) AR_BILLING_LOG="" falls back to the default path', () => {
+    const r = resolveArPaths({}, { AR_BILLING_LOG: '' });
+    expect(r.billingLog).toBe('/home/maestro/projects/mpowerio-ar/ar-monthly-billing.log');
+  });
+
+  it('(b) AR_DISARM_SENTINELS=":" falls back to the DEFAULT sentinels — never []', () => {
+    const r = resolveArPaths({}, { AR_DISARM_SENTINELS: ':' });
+    expect(r.disarmSentinels).toEqual(DEFAULT_AR_DISARM_SENTINELS);
+    expect(r.disarmSentinels.length).toBeGreaterThan(0);
+  });
+
+  it('(b2) AR_DISARM_SENTINELS="" falls back to the DEFAULT sentinels', () => {
+    const r = resolveArPaths({}, { AR_DISARM_SENTINELS: '' });
+    expect(r.disarmSentinels).toEqual(DEFAULT_AR_DISARM_SENTINELS);
+  });
+
+  it('(c) whitespace-only scalar values fall back to defaults (path + env-name)', () => {
+    const r = resolveArPaths({}, {
+      AR_BRIEF_FILE: '   ',
+      AR_BILLING_LOG: '\t',
+      AR_DISARM_ENV: '  ',
+    });
+    expect(r.briefFile).toBe('/home/maestro/projects/mpowerio-ar/latest-brief.txt');
+    expect(r.billingLog).toBe('/home/maestro/projects/mpowerio-ar/ar-monthly-billing.log');
+    expect(r.disarmEnv).toBe('AR_DISARMED');
+  });
+
+  it('(c2) whitespace-only / empty sentinel segments are stripped, and an all-blank list falls back to default', () => {
+    // Real content survives (trimmed); a list that trims to nothing → default.
+    expect(resolveArPaths({}, { AR_DISARM_SENTINELS: ' /a : : /b ' }).disarmSentinels).toEqual([
+      '/a',
+      '/b',
+    ]);
+    expect(resolveArPaths({}, { AR_DISARM_SENTINELS: '  :  :' }).disarmSentinels).toEqual(
+      DEFAULT_AR_DISARM_SENTINELS,
+    );
+  });
+
+  it('(c3) blank OVERRIDES normalize too (empty override never wins over the default)', () => {
+    const r = resolveArPaths(
+      { briefFile: '', disarmSentinels: [], disarmEnv: '   ' },
+      {},
+    );
+    expect(r.briefFile).toBe('/home/maestro/projects/mpowerio-ar/latest-brief.txt');
+    expect(r.disarmSentinels).toEqual(DEFAULT_AR_DISARM_SENTINELS);
+    expect(r.disarmEnv).toBe('AR_DISARMED');
+  });
+
+  it('(d) a DISARMED file is STILL honored when the sentinels env is malformed', () => {
+    // The failure scenario: a blank AR_DISARM_SENTINELS silently empties the
+    // sentinel list, so the store never checks the DISARMED file and the money
+    // rail reports armed. After normalization the default sentinels survive, so
+    // a store that finds the DISARMED file (readDisarmed -> true) is honored.
+    const resolved = resolveArPaths({}, { AR_DISARM_SENTINELS: ':' });
+    expect(resolved.disarmSentinels).toEqual(DEFAULT_AR_DISARM_SENTINELS);
+
+    const disarmedStore: ArRailStore = {
+      readBrief: () => FIXTURE_BRIEF_CLEAN,
+      readBillingLog: () => null,
+      // consuming store checks resolved.disarmSentinels; a present file => true
+      readDisarmed: () => resolved.disarmSentinels.length > 0 || null,
+    };
+    return new ArRailLeaf(disarmedStore).status().then((s) => {
+      expect(s.armed).toBe(false);
+      expect(s.summary).toContain('[DISARMED]');
+    });
+  });
+});
