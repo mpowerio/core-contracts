@@ -11,6 +11,7 @@
  */
 // ── Rule-18 migration grant spec + linter (the one runtime-tested module) ──
 export { lintGrants, } from './grants.js';
+export { GRANDFATHER_DEADLINE, mapGrantState, remapGrandfatheredFindings, } from './grant-state.js';
 // ── MOC clover leaf contract: the honest ReadableLeaf / ArmableLeaf split ──
 export { isArmable, ARMABLE_BRAND, } from './moc/leaf.js';
 // ── MOC leaf adapters: reaction (ArmableLeaf) + AR (ReadableLeaf) variance tests ──

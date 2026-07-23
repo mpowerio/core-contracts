@@ -19,6 +19,13 @@ export {
   type GrantLintFinding,
   type LintSeverity,
 } from './grants.js';
+export {
+  GRANDFATHER_DEADLINE,
+  mapGrantState,
+  remapGrandfatheredFindings,
+  type PublicTableSecurityRow,
+  type RoleTableGrantRow,
+} from './grant-state.js';
 
 // ── MOC clover leaf contract: the honest ReadableLeaf / ArmableLeaf split ──
 export {
