@@ -29,13 +29,31 @@
 --             when not, and never blocks switching off.
 --
 -- Rules enforced here:
---   * Append-only, and one write path. App roles get no INSERT, UPDATE,
---     DELETE or TRUNCATE on either table. Every change goes through
---     ai_consent_record() (SECURITY DEFINER), which writes the event and, on
---     a withdrawal, its deletion request in the same transaction.
---   * UPDATE and TRUNCATE on events always raise. DELETE raises unless it
---     runs as the table owner inside ai_consent_retention_purge(); a session
---     setting alone is not enough.
+--   * Append-only. App roles get no INSERT, UPDATE, DELETE or TRUNCATE on
+--     either table. A consent change goes through ai_consent_record()
+--     (SECURITY DEFINER), which writes the event and, on a withdrawal, its
+--     deletion request in the same transaction.
+--   * Three functions write, each for one job: ai_consent_record() (events,
+--     plus the deletion request on a withdrawal), ai_deletion_request_complete()
+--     (pending -> completed, once) and ai_consent_retention_purge() (deletes
+--     the ledger 3 years after the last withdrawal). Nothing else writes.
+--   * UPDATE and TRUNCATE on events always raise. DELETE raises unless it runs
+--     inside ai_consent_retention_purge(): that function is SECURITY DEFINER,
+--     so its statements run as the table owner, and it sets a
+--     transaction-local marker. The trigger checks both (effective user is
+--     the table owner AND the marker is on). An app role that sets the marker
+--     itself is still not the owner, and has no DELETE grant anyway.
+--   * Concurrency. Every state-changing function first calls
+--     ai_consent_lock(kind): it refuses to run unless the transaction is READ
+--     COMMITTED, then takes pg_advisory_xact_lock on a stable per-kind key
+--     (per tenant + kind in the substrate). Under READ COMMITTED each later
+--     statement in the function reads a fresh snapshot, so the "already on /
+--     already off / eligible for purge" decision sees every change committed
+--     before the lock was granted. REPEATABLE READ and SERIALIZABLE are
+--     refused because their snapshot is fixed at the transaction's first
+--     statement, which can be before the lock; locking the latest row FOR
+--     UPDATE would not help, because the conflicting change is a NEW row
+--     (another opt-in or withdrawal), which a row lock cannot see.
 --   * Opt-in only from Settings, only by an owner, only with the attestation
 --     ticked. Staff never opt a business in; staff may record a withdrawal the
 --     business asked for by email (source = 'email_request').
@@ -54,7 +72,10 @@
 --     function must make the exporter stop loudly; it never means "not
 --     opted in". ai_consent_windows_audit(kind) lists past windows for
 --     people and audits; the exporter never calls it.
---   * The retention purge uses the database clock only.
+--   * Retention purge: service_role may call it (each system's scheduled job
+--     runs as service_role). It uses the database clock (now()), deletes
+--     only when every kind is off, no deletion request is pending, and the
+--     last withdrawal is more than 3 years old.
 --
 -- Ledger rows hold the agreeing person's name, email and role only. Never
 -- message text, never customer data.
@@ -119,6 +140,9 @@ CREATE TABLE public.ai_improvement_deletion_requests (
   completed_at     timestamptz,
   deleted_rows     bigint CHECK (deleted_rows IS NULL OR deleted_rows >= 0),
   executor         text,
+  CONSTRAINT ai_deletion_completed_after_requested CHECK (
+    completed_at IS NULL OR completed_at >= requested_at
+  ),
   CONSTRAINT ai_deletion_completion_fields CHECK (
     (status = 'pending' AND completed_at IS NULL AND deleted_rows IS NULL)
     OR (status = 'completed' AND completed_at IS NOT NULL AND deleted_rows IS NOT NULL AND executor IS NOT NULL)
@@ -128,9 +152,9 @@ CREATE TABLE public.ai_improvement_deletion_requests (
 
 -- ── Guards ──────────────────────────────────────────────────────────────────
 
--- True only when the statement runs as the table's owner AND inside the
--- purge function (which sets the marker transaction-locally). App roles are
--- never the owner, so setting the marker themselves does not help them.
+-- True only when the effective user is the table's owner AND the purge
+-- marker is on for this transaction. Inside ai_consent_retention_purge()
+-- (SECURITY DEFINER) both hold; an app role is never the owner.
 CREATE FUNCTION public.ai_consent_purge_in_progress(p_rel oid)
 RETURNS boolean
 LANGUAGE sql
@@ -209,7 +233,28 @@ CREATE TRIGGER ai_deletion_requests_no_truncate
   BEFORE TRUNCATE ON public.ai_improvement_deletion_requests
   FOR EACH STATEMENT EXECUTE FUNCTION public.ai_deletion_request_guard();
 
--- ── Record a change (the only write path) ──────────────────────────────────
+-- ── Serialize state changes ────────────────────────────────────────────────
+-- Called first by every state-changing function. See "Concurrency" above.
+
+CREATE FUNCTION public.ai_consent_lock(p_kind public.ai_consent_kind)
+RETURNS void
+LANGUAGE plpgsql
+SET search_path = pg_catalog, public
+AS $$
+BEGIN
+  IF current_setting('transaction_isolation') <> 'read committed' THEN
+    RAISE EXCEPTION 'ai_consent changes must run at READ COMMITTED (this transaction is %)',
+                    upper(current_setting('transaction_isolation'))
+      USING ERRCODE = 'invalid_transaction_state',
+            HINT = 'Call this function in its own READ COMMITTED transaction (the default).';
+  END IF;
+  -- Two-key form: a fixed namespace for this ledger, then the kind.
+  -- SUBSTRATE: hashtext(p_tenant::text || ':' || p_kind::text) as the second key.
+  PERFORM pg_advisory_xact_lock(hashtext('mpowerio.ai_consent'), hashtext(p_kind::text));
+END;
+$$;
+
+-- ── Record a change ────────────────────────────────────────────────────────
 -- JBET/FPC: called by the server with service_role after it resolved the
 -- actor from its own session. SUBSTRATE: rewrite it to read auth.uid(),
 -- check current_tenant_id() = p_tenant, current_role_in_tenant() = 'owner'
@@ -245,8 +290,8 @@ DECLARE
   v_lang        text := p_lang;
   v_event       uuid;
 BEGIN
-  -- One change per kind at a time, so "already on/off" is decided correctly.
-  PERFORM pg_advisory_xact_lock(hashtext('ai_consent:' || p_kind::text));
+  -- One change per kind at a time, and the reads below see fresh state.
+  PERFORM public.ai_consent_lock(p_kind);
 
   SELECT action, id INTO v_last_action, v_last_id
     FROM public.ai_consent_events
@@ -303,15 +348,29 @@ LANGUAGE plpgsql
 SECURITY DEFINER
 SET search_path = pg_catalog, public
 AS $$
+DECLARE
+  v_kind public.ai_consent_kind;
 BEGIN
-  IF p_status NOT IN ('completed', 'completed_nothing_held') THEN
+  IF p_status IS NULL OR p_status NOT IN ('completed', 'completed_nothing_held') THEN
     RAISE EXCEPTION 'status must be completed or completed_nothing_held' USING ERRCODE = 'check_violation';
   END IF;
+  -- kind never changes, so it is safe to read before the lock.
+  SELECT kind INTO v_kind FROM public.ai_improvement_deletion_requests WHERE id = p_request_id;
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'no deletion request %', p_request_id USING ERRCODE = 'no_data_found';
+  END IF;
+  PERFORM public.ai_consent_lock(v_kind);
+
+  -- clock_timestamp(), not now(): a request created and completed in one
+  -- transaction must still show completed_at >= requested_at.
   UPDATE public.ai_improvement_deletion_requests
-     SET status = p_status, completed_at = now(), deleted_rows = p_deleted_rows, executor = p_executor
+     SET status = p_status,
+         completed_at = greatest(clock_timestamp(), requested_at),
+         deleted_rows = p_deleted_rows,
+         executor = p_executor
    WHERE id = p_request_id AND status = 'pending';
   IF NOT FOUND THEN
-    RAISE EXCEPTION 'no pending deletion request %', p_request_id USING ERRCODE = 'no_data_found';
+    RAISE EXCEPTION 'deletion request % is not pending', p_request_id USING ERRCODE = 'no_data_found';
   END IF;
 END;
 $$;
@@ -362,7 +421,8 @@ $$;
 -- Deletes the whole ledger only when every kind is off (last event is a
 -- withdrawal, or there are no events), no deletion request is pending, and
 -- the last withdrawal is more than 3 years old by the database clock.
--- Returns the number of events deleted.
+-- Returns the number of events deleted. service_role may call it; it takes
+-- every kind's lock (in enum order) before deciding.
 
 CREATE FUNCTION public.ai_consent_retention_purge()
 RETURNS bigint
@@ -376,8 +436,10 @@ DECLARE
   v_last_withdraw timestamptz;
   v_deleted       bigint;
 BEGIN
-  PERFORM pg_advisory_xact_lock(hashtext('ai_consent:service_improvement'));
-  PERFORM pg_advisory_xact_lock(hashtext('ai_consent:own_records_training'));
+  -- Every kind, in a fixed order (the record function takes only one, so no
+  -- deadlock). The reads below then see every committed change.
+  PERFORM public.ai_consent_lock('service_improvement');
+  PERFORM public.ai_consent_lock('own_records_training');
 
   SELECT coalesce(bool_or(last_action = 'opt_in'), false) INTO v_any_on
     FROM (
@@ -430,13 +492,16 @@ REVOKE ALL ON FUNCTION
   public.ai_consent_windows_audit(public.ai_consent_kind),
   public.ai_consent_retention_purge(),
   public.ai_consent_purge_in_progress(oid),
+  public.ai_consent_lock(public.ai_consent_kind),
   public.ai_consent_block_change(),
   public.ai_deletion_request_guard()
   FROM PUBLIC, anon, authenticated, service_role;
 
 -- ── Rule 18, part 2: ADD EXACTLY ONE VARIANT (grants only) ─────────────────
 -- No variant grants INSERT, UPDATE, DELETE or TRUNCATE on either table to any
--- app role: writes go only through the functions.
+-- app role: writes go only through the three functions. Every variant lets
+-- service_role run the purge, because each system's scheduled retention job
+-- runs as service_role.
 
 -- >>> VARIANT substrate (Supabase Auth. authenticated reads its own business's
 -- rows through RLS. The server writes with service_role. Grant EXECUTE on the

@@ -83,7 +83,13 @@ describe('Gmail disclosure', () => {
     expect(GMAIL_DISCLOSURE_VERSION).toMatch(/^\d{4}-\d{2}-\d{2}\.\d+$/);
     const versions = PIN_HISTORY.map((p) => p.version);
     expect(new Set(versions).size).toBe(versions.length);
-    expect([...versions].sort()).toEqual(versions);
+    expect(
+        [...versions].sort((a, b) => {
+          const [da, na] = a.split('.');
+          const [db, nb] = b.split('.');
+          return da === db ? Number(na) - Number(nb) : (da ?? '') < (db ?? '') ? -1 : 1;
+        }),
+      ).toEqual(versions);
   });
 
   it('the hashed text includes the language and the checkbox label', () => {

@@ -97,7 +97,13 @@ describe('a text change requires a version bump', () => {
       const list = PIN_HISTORY[kind];
       const versions = list.map((p) => p.version);
       expect(new Set(versions).size).toBe(versions.length);
-      expect([...versions].sort()).toEqual(versions);
+      expect(
+        [...versions].sort((a, b) => {
+          const [da, na] = a.split('.');
+          const [db, nb] = b.split('.');
+          return da === db ? Number(na) - Number(nb) : (da ?? '') < (db ?? '') ? -1 : 1;
+        }),
+      ).toEqual(versions);
       const hashes = list.flatMap((p) => [p.en, p.es]);
       expect(new Set(hashes).size).toBe(hashes.length);
     });
