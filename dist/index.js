@@ -12,6 +12,11 @@
 // ── Rule-18 migration grant spec + linter (the one runtime-tested module) ──
 export { lintGrants, } from './grants.js';
 export { GRANDFATHER_DEADLINE, mapGrantState, remapGrandfatheredFindings, } from './grant-state.js';
+// ── AI improvement consent contract (v0.6.0): kinds, wording EN/ES, versions,
+// hashes, validation; plus the Gmail pre-Connect disclosure. Reference ledger
+// DDL ships as src/consent/sql/ledger-template.sql. ──
+export { AI_CONSENT_KINDS, AI_CONSENT_ACTIONS, AI_CONSENT_SOURCES, CONSENT_LANGS, AI_CONSENT_REQUIRED_ROLE, AI_CONSENT_OFFERED, AI_IMPROVEMENT_WORDING_VERSION, OWN_RECORDS_TRAINING_WORDING_VERSION, AI_CONSENT_WORDING_VERSIONS, AI_IMPROVEMENT_DETAILS_URL, AI_CONSENT_COPY, formatStateOn, renderAiConsentWording, wordingSha256, validateAiConsentEvent, sha256Hex, } from './consent/ai-improvement.js';
+export { GMAIL_DISCLOSURE_VERSION, GMAIL_DISCLOSURE_LOOKBACK_DAYS, GMAIL_DISCLOSURE_COPY, renderGmailDisclosure, gmailDisclosureSha256, } from './consent/gmail-disclosure.js';
 // ── MOC clover leaf contract: the honest ReadableLeaf / ArmableLeaf split ──
 export { isArmable, ARMABLE_BRAND, } from './moc/leaf.js';
 // ── MOC leaf adapters: reaction (ArmableLeaf) + AR (ReadableLeaf) variance tests ──
