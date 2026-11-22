@@ -57,16 +57,20 @@ export const AI_CONSENT_OFFERED: Readonly<Record<AiConsentKind, boolean>> = {
 // Format: YYYY-MM-DD.N. Any change to a kind's wording (either language)
 // requires a new version for that kind. The pinned-hash test enforces this.
 
-export const AI_IMPROVEMENT_WORDING_VERSION = '2026-11-22.1';
-export const OWN_RECORDS_TRAINING_WORDING_VERSION = '2026-11-22.1';
+export const AI_IMPROVEMENT_WORDING_VERSION = '2026-11-22.2';
+export const OWN_RECORDS_TRAINING_WORDING_VERSION = '2026-11-22.2';
 
 export const AI_CONSENT_WORDING_VERSIONS: Readonly<Record<AiConsentKind, string>> = {
   service_improvement: AI_IMPROVEMENT_WORDING_VERSION,
   own_records_training: OWN_RECORDS_TRAINING_WORDING_VERSION,
 };
 
-/** The policy section the switch links to (anchor exists at #376). */
-export const AI_IMPROVEMENT_DETAILS_URL = 'https://mpowerio.ai/privacy#ai-improvement-program';
+/**
+ * The policy section the switch links to. `#service-improvement` is the top
+ * of the "Service-improvement data" section at #376, so the reader lands on
+ * the purpose and exclusions first, then the opt-in and switch-off paragraph.
+ */
+export const AI_IMPROVEMENT_DETAILS_URL = 'https://mpowerio.ai/privacy#service-improvement';
 
 // ── Wording ──
 
@@ -97,19 +101,22 @@ const SERVICE_IMPROVEMENT_EN: AiConsentSwitchCopy = {
   stateOff: 'Off',
   stateOn: 'On since {date}, turned on by {name} ({role})',
   body:
-    "Off unless you turn it on. If you turn it on, we use only your work steps (what was done, in what order, and how long it took), with names, contact details, prices and message text taken out, to improve and train mpowerio's own models and services, on mpowerio's own hardware. " +
+    "Off unless you turn it on. If you turn it on, we use only your work steps (what was done, in what order, and how long it took), with names, email addresses, phone numbers, street addresses, prices and other dollar amounts, and any message or note text taken out, to improve and train mpowerio's own models and services, which we use for all our clients, on hardware mpowerio owns and controls. " +
     'Nothing from before you turn it on is used. ' +
     'It never includes your customer content, call recordings or transcripts, or anything from a connected Gmail account or Google Drive, including summaries or fields our software makes from it. ' +
-    'It is never sold, never shared with other clients or anyone else, and never used for advertising. ' +
+    'It is never sold, never shared with other clients or anyone else, never used for advertising, and never used to identify a person. ' +
     'If you turn it on, you are responsible for telling the people who work for you that their work steps, with names removed, are used this way. ' +
-    'You can turn it off at any time; we then delete the service-improvement data we hold from your system. ' +
+    'You can turn it off at any time, here or by emailing us. We then stop adding your activity and delete the service-improvement data we hold from your system. ' +
+    'Models trained before you turned it off are not retrained right away, but your data is not used in any training after you turn it off, and those older models are replaced as we retrain on our normal schedule. ' +
+    'You can also ask to see what is used, or ask us to delete it without turning it off. ' +
     'Choosing not to take part never changes your price or service.',
   detailsLabel: 'Read the details',
   detailsUrl: AI_IMPROVEMENT_DETAILS_URL,
   attestation: "I'm authorized to accept agreements for this business.",
   turnOn: 'Turn on',
   turnOff: 'Turn off',
-  turnOffNotice: 'Turning off deletes the service-improvement data we hold from your system.',
+  turnOffNotice:
+    'Turning off deletes the service-improvement data we hold from your system. Models trained before then are replaced as we retrain on our normal schedule.',
   askOwner: 'Ask an owner of this business to change this.',
 };
 
@@ -118,19 +125,22 @@ const SERVICE_IMPROVEMENT_ES: AiConsentSwitchCopy = {
   stateOff: 'Desactivado',
   stateOn: 'Activado desde el {date}; lo activó {name} ({role})',
   body:
-    'Está desactivado a menos que tú lo actives. Si lo activas, usamos solo los pasos de trabajo de tu negocio (qué se hizo, en qué orden y cuánto tiempo tomó), sin nombres, datos de contacto, precios ni texto de mensajes, para mejorar y entrenar los modelos y servicios propios de mpowerio, en equipos de mpowerio. ' +
+    'Está desactivado a menos que tú lo actives. Si lo activas, usamos solo los pasos de trabajo de tu negocio (qué se hizo, en qué orden y cuánto tiempo tomó), sin nombres, direcciones de correo electrónico, números de teléfono, direcciones postales, precios ni otras cantidades de dinero, ni texto de mensajes o notas, para mejorar y entrenar los modelos y servicios propios de mpowerio, que usamos con todos nuestros clientes, en equipos que son propiedad de mpowerio y que mpowerio controla. ' +
     'No se usa nada de antes de que lo actives. ' +
     'Nunca incluye el contenido de tus clientes, grabaciones ni transcripciones de llamadas, ni nada de una cuenta de Gmail o de Google Drive conectada, incluidos los resúmenes o campos que nuestro software crea a partir de ellos. ' +
-    'Nunca se vende, nunca se comparte con otros clientes ni con nadie más, y nunca se usa para publicidad. ' +
+    'Nunca se vende, nunca se comparte con otros clientes ni con nadie más, nunca se usa para publicidad y nunca se usa para identificar a una persona. ' +
     'Si lo activas, te corresponde avisar a las personas que trabajan para ti que sus pasos de trabajo, sin nombres, se usan de esta forma. ' +
-    'Puedes desactivarlo cuando quieras; entonces borramos los datos de mejora del servicio que tenemos de tu sistema. ' +
+    'Puedes desactivarlo cuando quieras, aquí o escribiéndonos por correo. Entonces dejamos de agregar tu actividad y borramos los datos de mejora del servicio que tenemos de tu sistema. ' +
+    'Los modelos entrenados antes de que lo desactives no se vuelven a entrenar de inmediato, pero tus datos no se usan en ningún entrenamiento después de que lo desactives, y esos modelos anteriores se reemplazan cuando volvemos a entrenar según nuestro calendario normal. ' +
+    'También puedes pedirnos ver qué se usa, o pedirnos que lo borremos sin desactivarlo. ' +
     'Decidir no participar nunca cambia tu precio ni tu servicio.',
   detailsLabel: 'Lee los detalles',
   detailsUrl: AI_IMPROVEMENT_DETAILS_URL,
   attestation: 'Tengo autorización para aceptar acuerdos en nombre de este negocio.',
   turnOn: 'Activar',
   turnOff: 'Desactivar',
-  turnOffNotice: 'Al desactivarlo, borramos los datos de mejora del servicio que tenemos de tu sistema.',
+  turnOffNotice:
+    'Al desactivarlo, borramos los datos de mejora del servicio que tenemos de tu sistema. Los modelos entrenados antes se reemplazan cuando volvemos a entrenar según nuestro calendario normal.',
   askOwner: 'Pídele a un dueño de este negocio que lo cambie.',
 };
 
@@ -162,7 +172,7 @@ const OWN_RECORDS_ES: AiConsentSwitchCopy = {
   notOffered: 'Todavía no se ofrece',
   body:
     'Está desactivado a menos que tú lo actives. Si lo activas, mpowerio puede usar los registros propios de tu negocio para entrenar un modelo. ' +
-    'Siempre se dejan fuera los nombres, correos electrónicos, números de teléfono, direcciones postales y todo el texto libre (notas, descripciones y texto de mensajes), y nunca se usa nada de grabaciones o transcripciones de llamadas, ni de una cuenta de Gmail o de Google Drive conectada, incluidos los resúmenes o campos que nuestro software crea a partir de ellos. ' +
+    'Siempre se dejan fuera los nombres, direcciones de correo electrónico, números de teléfono, direcciones postales y todo el texto libre (notas, descripciones y texto de mensajes), y nunca se usa nada de grabaciones o transcripciones de llamadas, ni de una cuenta de Gmail o de Google Drive conectada, incluidos los resúmenes o campos que nuestro software crea a partir de ellos. ' +
     'Esto es aparte del programa de mejora de IA.',
   detailsLabel: 'Lee los detalles',
   detailsUrl: AI_IMPROVEMENT_DETAILS_URL,
@@ -237,11 +247,16 @@ export interface AiConsentEvent {
   actorEmail: string;
   /** Resolved by the system itself (session/membership), never sent by the browser. */
   actorRole: string;
-  /** The attestation checkbox. Must be true for opt_in. */
+  /** The attestation checkbox. Must be literally `true` for opt_in. */
   authorityAttested: boolean;
-  wordingVersion: string;
-  wordingSha256: string;
-  lang: ConsentLang;
+  /**
+   * The wording the person saw. Required and current for opt_in. For a
+   * withdrawal it is recorded as evidence when available (any past version,
+   * or null), and is never a reason to refuse switching off.
+   */
+  wordingVersion: string | null;
+  wordingSha256: string | null;
+  lang: ConsentLang | null;
   /** Staff member who recorded an emailed withdrawal. */
   recordedByUserId?: string | null;
   /** e.g. a mail message id. Never message text. */
@@ -251,6 +266,7 @@ export interface AiConsentEvent {
 }
 
 export type AiConsentProblemCode =
+  | 'MALFORMED_INPUT'
   | 'UNKNOWN_KIND'
   | 'UNKNOWN_ACTION'
   | 'UNKNOWN_LANG'
@@ -270,65 +286,80 @@ export interface AiConsentProblem {
   message: string;
 }
 
+const isNonBlankString = (v: unknown): v is string => typeof v === 'string' && v.trim() !== '';
+
 /**
  * Check a proposed ledger row against the contract before it is written.
- * Returns an empty array when the row is acceptable. Each system's database
- * RPC must enforce the same rules; this function lets the server action and
- * the tests share one definition.
+ * Returns an empty array when the row is acceptable. Never throws: input of
+ * the wrong shape (for example straight from a request body) comes back as
+ * problems. Each system's database function must enforce the same rules;
+ * this function lets the server action and the tests share one definition.
+ *
+ * Turning on needs the current wording, version and hash. Turning off never
+ * depends on the wording: a stale page, an older version or a missing hash
+ * must not stop a business from switching off.
  */
-export function validateAiConsentEvent(e: AiConsentEvent): AiConsentProblem[] {
+export function validateAiConsentEvent(input: unknown): AiConsentProblem[] {
   const problems: AiConsentProblem[] = [];
   const add = (code: AiConsentProblemCode, message: string): void => {
-    problems.push({ code, message });
+    if (!problems.some((p) => p.code === code)) problems.push({ code, message });
   };
 
-  const kindOk = (AI_CONSENT_KINDS as readonly string[]).includes(e.kind);
-  const langOk = (CONSENT_LANGS as readonly string[]).includes(e.lang);
-  if (!kindOk) add('UNKNOWN_KIND', 'This setting is not recognized.');
-  if (!(AI_CONSENT_ACTIONS as readonly string[]).includes(e.action)) {
-    add('UNKNOWN_ACTION', 'This change is not recognized.');
+  if (input === null || typeof input !== 'object') {
+    add('MALFORMED_INPUT', 'This change could not be read. Reload the page and try again.');
+    return problems;
   }
-  if (!langOk) add('UNKNOWN_LANG', 'This language is not supported.');
-  if (!(AI_CONSENT_SOURCES as readonly string[]).includes(e.source)) {
-    add('UNKNOWN_SOURCE', 'The source of this change is not recognized.');
-  }
-  if (problems.length > 0) return problems;
+  const e = input as Record<string, unknown>;
 
-  if (e.actorName.trim() === '' || e.actorEmail.trim() === '' || e.actorRole.trim() === '') {
+  const kind = (AI_CONSENT_KINDS as readonly unknown[]).includes(e.kind) ? (e.kind as AiConsentKind) : null;
+  const action = (AI_CONSENT_ACTIONS as readonly unknown[]).includes(e.action)
+    ? (e.action as AiConsentAction)
+    : null;
+  const source = (AI_CONSENT_SOURCES as readonly unknown[]).includes(e.source)
+    ? (e.source as AiConsentSource)
+    : null;
+  const lang = (CONSENT_LANGS as readonly unknown[]).includes(e.lang) ? (e.lang as ConsentLang) : null;
+
+  if (kind === null) add('UNKNOWN_KIND', 'This setting is not recognized.');
+  if (action === null) add('UNKNOWN_ACTION', 'This change is not recognized.');
+  if (source === null) add('UNKNOWN_SOURCE', 'The source of this change is not recognized.');
+  if (kind === null || action === null || source === null) return problems;
+
+  if (!isNonBlankString(e.actorName) || !isNonBlankString(e.actorEmail) || !isNonBlankString(e.actorRole)) {
     add('MISSING_ACTOR', 'Who made this change could not be recorded.');
   }
 
-  if (e.action === 'opt_in') {
-    if (e.source !== 'settings') {
-      add('STAFF_CANNOT_OPT_IN', 'Only an owner can turn this on, from Settings.');
-    }
-    if (!AI_CONSENT_OFFERED[e.kind]) {
-      add('NOT_OFFERED', 'This option is not offered yet.');
-    }
-    if (!e.authorityAttested) {
-      add('NOT_ATTESTED', 'Tick the box to confirm you are authorized to accept agreements for this business.');
-    }
-  }
-
-  if (e.source === 'settings') {
+  if (source === 'settings') {
     if (e.actorRole !== AI_CONSENT_REQUIRED_ROLE) {
       add('NOT_OWNER', 'Only an owner of this business can change this.');
     }
-    if (e.actorUserId === null || e.actorUserId.trim() === '') {
+    if (!isNonBlankString(e.actorUserId)) {
       add('MISSING_ACTOR', 'Who made this change could not be recorded.');
     }
-  } else if (e.recordedByUserId == null || e.recordedByUserId.trim() === '') {
+  } else if (!isNonBlankString(e.recordedByUserId)) {
     add('MISSING_RECORDER', 'Record which staff member entered this emailed request.');
   }
 
-  if (e.wordingVersion !== AI_CONSENT_WORDING_VERSIONS[e.kind]) {
-    add('STALE_WORDING_VERSION', 'This page is out of date. Reload it and try again.');
-  } else if (e.wordingSha256 !== wordingSha256(e.kind, e.lang)) {
-    add('WORDING_HASH_MISMATCH', 'This page is out of date. Reload it and try again.');
+  if (action === 'opt_in') {
+    if (source !== 'settings') {
+      add('STAFF_CANNOT_OPT_IN', 'Only an owner can turn this on, from Settings.');
+    }
+    if (!AI_CONSENT_OFFERED[kind]) {
+      add('NOT_OFFERED', 'This option is not offered yet.');
+    }
+    if (e.authorityAttested !== true) {
+      add('NOT_ATTESTED', 'Tick the box to confirm you are authorized to accept agreements for this business.');
+    }
+    if (lang === null) {
+      add('UNKNOWN_LANG', 'This language is not supported.');
+    } else if (e.wordingVersion !== AI_CONSENT_WORDING_VERSIONS[kind]) {
+      add('STALE_WORDING_VERSION', 'This page is out of date. Reload it and try again.');
+    } else if (e.wordingSha256 !== wordingSha256(kind, lang)) {
+      add('WORDING_HASH_MISMATCH', 'This page is out of date. Reload it and try again.');
+    }
   }
 
-  // MISSING_ACTOR can be added twice (blank fields + blank user id); keep one.
-  return problems.filter((p, i) => problems.findIndex((q) => q.code === p.code) === i);
+  return problems;
 }
 
 // ── SHA-256 (FIPS 180-4) over UTF-8 ──

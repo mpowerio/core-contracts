@@ -17,26 +17,53 @@ import {
 } from '../ai-improvement.js';
 
 /**
- * PINNED WORDING. One entry per kind: the current version and the SHA-256 of
- * each language's canonical text.
+ * PINNED WORDING, as a history. Each kind lists every version this package has
+ * defined, oldest first, with the SHA-256 of each language's canonical text.
+ * The last entry is the current one.
  *
- * If a test below fails because a hash changed, the wording changed. Do NOT
- * just paste the new hash under the old version. Bump that kind's version in
- * ai-improvement.ts (YYYY-MM-DD.N), then pin the new hashes under the new
- * version. Ledger rows already written point at the old version and hash;
- * reusing a version string would make those rows ambiguous.
+ * If a hash test fails, the wording changed. Do NOT edit an existing entry.
+ * Bump that kind's version in ai-improvement.ts (YYYY-MM-DD.N) and APPEND a
+ * new entry. Ledger rows already written point at the old version and hash;
+ * reusing a version string would make those rows ambiguous. Editing an old
+ * entry shows up in review as a changed line inside the history.
  */
-const PINNED: Record<AiConsentKind, { version: string } & Record<ConsentLang, string>> = {
-  service_improvement: {
-    version: '2026-11-22.1',
-    en: 'dad3621d1d421dba553ec4523ce53dfa820914deb65d6be573c86a6d5980d9c4',
-    es: '0e8656cf6ac66406b157fbe04559047e954a8ca64c083af2a4d6208c6557cf81',
-  },
-  own_records_training: {
-    version: '2026-11-22.1',
-    en: 'b89b675d2af49f478342a6ca8c5a8c5ebedbe9b22e1bca68c2a7640eb46d6c13',
-    es: '3af1aff2981c31efa5a168d4d2a6decdd474571dcff71002c8a947f60544ba92',
-  },
+type Pin = { version: string } & Record<ConsentLang, string>;
+const PIN_HISTORY: Record<AiConsentKind, readonly Pin[]> = {
+  service_improvement: [
+    {
+      // PR #8 head 6f70a79; never released. Superseded by the review repair.
+      version: '2026-11-22.1',
+      en: 'dad3621d1d421dba553ec4523ce53dfa820914deb65d6be573c86a6d5980d9c4',
+      es: '0e8656cf6ac66406b157fbe04559047e954a8ca64c083af2a4d6208c6557cf81',
+    },
+    {
+      version: '2026-11-22.2',
+      en: 'a17b2305dccdcd09e38b38ef9f334dafe89db4c192e1e4e1e8b46bdff4b41213',
+      es: '72bd5a39fda9ad5d15be01313d2fb58b5d9228a1962b2fa5fb8f53b3df2bc603',
+    },
+  ],
+  own_records_training: [
+    {
+      version: '2026-11-22.1',
+      en: 'b89b675d2af49f478342a6ca8c5a8c5ebedbe9b22e1bca68c2a7640eb46d6c13',
+      es: '3af1aff2981c31efa5a168d4d2a6decdd474571dcff71002c8a947f60544ba92',
+    },
+    {
+      version: '2026-11-22.2',
+      en: '9a13feb4707e771b02601158b208b56405df6569474c6c05017c48c4e64a27a2',
+      es: 'df3e2fc62887e42b9cacb6d34e3e05fc6a85b157e3d06e440faeeb47e46162a1',
+    },
+  ],
+};
+const current = (kind: AiConsentKind): Pin => {
+  const list = PIN_HISTORY[kind];
+  const last = list[list.length - 1];
+  if (last === undefined) throw new Error(`no pins for ${kind}`);
+  return last;
+};
+const PINNED: Record<AiConsentKind, Pin> = {
+  service_improvement: current('service_improvement'),
+  own_records_training: current('own_records_training'),
 };
 
 describe('pinned wording hashes', () => {
@@ -64,6 +91,15 @@ describe('a text change requires a version bump', () => {
       }
       // New version without new pins = the pin table is stale.
       expect(version).toBe(pin.version);
+    });
+
+    it(`${kind}: the pin history is append-only in shape (unique, increasing versions; no reused hash)`, () => {
+      const list = PIN_HISTORY[kind];
+      const versions = list.map((p) => p.version);
+      expect(new Set(versions).size).toBe(versions.length);
+      expect([...versions].sort()).toEqual(versions);
+      const hashes = list.flatMap((p) => [p.en, p.es]);
+      expect(new Set(hashes).size).toBe(hashes.length);
     });
   }
 
@@ -136,8 +172,13 @@ describe('EN/ES parity', () => {
 const POLICY_PHRASES_SERVICE_IMPROVEMENT_EN: Array<[string, string]> = [
   ['off by default (privacy: "It is off unless the business opts in")', 'Off unless you turn it on'],
   ['what is used (privacy: "Only the work steps")', 'what was done, in what order, and how long it took'],
-  ['what is taken out (terms)', 'with names, contact details, prices and message text taken out'],
-  ['whose models, where (terms)', "to improve and train mpowerio's own models and services, on mpowerio's own hardware"],
+  [
+    'what is taken out (privacy: "we take out names, email addresses, phone numbers, street addresses, prices and other dollar amounts, and any message or note text")',
+    'with names, email addresses, phone numbers, street addresses, prices and other dollar amounts, and any message or note text taken out',
+  ],
+  ["whose models (privacy: \"mpowerio's own models and services\")", "to improve and train mpowerio's own models and services"],
+  ['models serve all clients (privacy: "which we use for all our clients")', 'which we use for all our clients'],
+  ['where (privacy: "hardware mpowerio owns and controls")', 'on hardware mpowerio owns and controls'],
   ['nothing from before opt-in (privacy)', 'Nothing from before you turn it on is used'],
   ['customer content excluded (terms)', 'never includes your customer content'],
   ['call recordings and transcripts excluded (privacy)', 'call recordings or transcripts'],
@@ -145,12 +186,18 @@ const POLICY_PHRASES_SERVICE_IMPROVEMENT_EN: Array<[string, string]> = [
   ['derived summaries and fields excluded (privacy)', 'including summaries or fields our software makes from it'],
   ['never sold or shared (privacy)', 'never sold, never shared with other clients or anyone else'],
   ['never advertising (privacy)', 'never used for advertising'],
+  ['never used to identify a person (privacy)', 'never used to identify a person'],
   [
     'telling staff (terms)',
     'you are responsible for telling the people who work for you that their work steps, with names removed, are used this way',
   ],
-  ['withdraw anytime (privacy: "can switch off at any time")', 'You can turn it off at any time'],
-  ['deletion on withdraw (privacy)', 'delete the service-improvement data we hold from'],
+  ['withdraw anytime, in settings or by email (privacy)', 'You can turn it off at any time, here or by emailing us'],
+  ['stop adding activity on withdraw (privacy: "we stop adding its activity")', 'stop adding your activity'],
+  ['deletion on withdraw (privacy)', 'delete the service-improvement data we hold from your system'],
+  ['models not retrained at once (privacy/terms)', 'Models trained before you turned it off are not retrained right away'],
+  ['no training after withdraw (terms)', 'your data is not used in any training after you turn it off'],
+  ['older models replaced on schedule (terms)', 'those older models are replaced as we retrain on our normal schedule'],
+  ['access and deletion on request (privacy)', 'ask to see what is used, or ask us to delete it without turning it off'],
   ['no price or service change (privacy, verbatim)', 'Choosing not to take part never changes your price or service.'],
 ];
 
@@ -168,12 +215,15 @@ describe('known-answer: policy-required phrases are present', () => {
     expect(AI_CONSENT_COPY.own_records_training.en.attestation).toBe(si.en.attestation);
   });
 
-  it('turn-off notice repeats the deletion promise', () => {
+  it('turn-off notice repeats the deletion promise and the model-replacement limit', () => {
     expect(si.en.turnOffNotice).toContain('deletes the service-improvement data we hold');
+    expect(si.en.turnOffNotice).toContain('replaced as we retrain on our normal schedule');
+    expect(si.es.turnOffNotice).toContain('borramos los datos de mejora del servicio');
+    expect(si.es.turnOffNotice).toContain('calendario normal');
   });
 
-  it('links to the policy anchor that exists at #376', () => {
-    expect(AI_IMPROVEMENT_DETAILS_URL).toBe('https://mpowerio.ai/privacy#ai-improvement-program');
+  it('links to the top of the policy section that exists at #376 (purpose first)', () => {
+    expect(AI_IMPROVEMENT_DETAILS_URL).toBe('https://mpowerio.ai/privacy#service-improvement');
     for (const kind of AI_CONSENT_KINDS) {
       for (const lang of CONSENT_LANGS) {
         expect(AI_CONSENT_COPY[kind][lang].detailsUrl).toBe(AI_IMPROVEMENT_DETAILS_URL);
@@ -185,6 +235,9 @@ describe('known-answer: policy-required phrases are present', () => {
     for (const phrase of [
       'Está desactivado a menos que tú lo actives',
       'qué se hizo, en qué orden y cuánto tiempo tomó',
+      'direcciones de correo electrónico, números de teléfono, direcciones postales, precios ni otras cantidades de dinero, ni texto de mensajes o notas',
+      'que usamos con todos nuestros clientes',
+      'en equipos que son propiedad de mpowerio y que mpowerio controla',
       'No se usa nada de antes de que lo actives',
       'grabaciones ni transcripciones de llamadas',
       'Gmail',
@@ -192,8 +245,14 @@ describe('known-answer: policy-required phrases are present', () => {
       'incluidos los resúmenes o campos que nuestro software crea a partir de ellos',
       'Nunca se vende',
       'nunca se usa para publicidad',
-      'Puedes desactivarlo cuando quieras',
+      'nunca se usa para identificar a una persona',
+      'Puedes desactivarlo cuando quieras, aquí o escribiéndonos por correo',
+      'dejamos de agregar tu actividad',
       'borramos los datos de mejora del servicio',
+      'no se vuelven a entrenar de inmediato',
+      'tus datos no se usan en ningún entrenamiento después de que lo desactives',
+      'se reemplazan cuando volvemos a entrenar según nuestro calendario normal',
+      'También puedes pedirnos ver qué se usa, o pedirnos que lo borremos sin desactivarlo',
       'Decidir no participar nunca cambia tu precio ni tu servicio.',
     ]) {
       expect(si.es.body).toContain(phrase);
@@ -210,7 +269,13 @@ describe('known-answer: policy-required phrases are present', () => {
     ]) {
       expect(o.en.body).toContain(phrase);
     }
-    for (const phrase of ['grabaciones o transcripciones de llamadas', 'Gmail', 'Google Drive', 'aparte del programa de mejora de IA']) {
+    for (const phrase of [
+      'direcciones de correo electrónico',
+      'grabaciones o transcripciones de llamadas',
+      'Gmail',
+      'Google Drive',
+      'aparte del programa de mejora de IA',
+    ]) {
       expect(o.es.body).toContain(phrase);
     }
   });
@@ -309,9 +374,57 @@ describe('validateAiConsentEvent', () => {
     expect(codes({ ...w, actorRole: 'manager' })).toEqual(['NOT_OWNER']);
   });
 
-  it('refuses a stale version and a mismatched hash', () => {
+  it('refuses an opt-in on a stale version or a mismatched hash', () => {
     expect(codes(ok({ wordingVersion: '2026-01-01.1' }))).toEqual(['STALE_WORDING_VERSION']);
+    expect(codes(ok({ wordingVersion: PIN_HISTORY.service_improvement[0]?.version ?? '' }))).toEqual([
+      'STALE_WORDING_VERSION',
+    ]);
     expect(codes(ok({ wordingSha256: wordingSha256('service_improvement', 'es') }))).toEqual(['WORDING_HASH_MISMATCH']);
+    expect(codes(ok({ wordingVersion: null, wordingSha256: null }))).toEqual(['STALE_WORDING_VERSION']);
+    expect(codes(ok({ lang: null }))).toEqual(['UNKNOWN_LANG']);
+  });
+
+  it('never blocks a withdrawal on wording: past version, old hash, missing evidence or odd language all pass', () => {
+    const past = PIN_HISTORY.service_improvement[0];
+    if (past === undefined) throw new Error('no past pin');
+    const base = ok({ action: 'withdraw', authorityAttested: false });
+    expect(codes({ ...base, wordingVersion: past.version, wordingSha256: past.es, lang: 'es' })).toEqual([]);
+    expect(codes({ ...base, wordingVersion: '2025-01-01.9', wordingSha256: 'f'.repeat(64) })).toEqual([]);
+    expect(codes({ ...base, wordingVersion: null, wordingSha256: null, lang: null })).toEqual([]);
+    expect(codes({ ...base, lang: 'fr' } as unknown as AiConsentEvent)).toEqual([]);
+    // Staff-recorded emailed withdrawal on old wording too.
+    expect(
+      codes({ ...base, source: 'email_request', actorUserId: null, recordedByUserId: 'staff-1', wordingVersion: past.version }),
+    ).toEqual([]);
+  });
+
+  it('attestation must be literally true', () => {
+    for (const v of ['true', 1, 'yes', {}, [], null, undefined]) {
+      expect(codes({ ...ok(), authorityAttested: v } as unknown as AiConsentEvent), String(v)).toEqual(['NOT_ATTESTED']);
+    }
+    expect(codes(ok({ authorityAttested: true }))).toEqual([]);
+  });
+
+  it('malformed input returns structured problems instead of throwing', () => {
+    expect(validateAiConsentEvent(null).map((p) => p.code)).toEqual(['MALFORMED_INPUT']);
+    expect(validateAiConsentEvent('opt_in').map((p) => p.code)).toEqual(['MALFORMED_INPUT']);
+    expect(validateAiConsentEvent(42).map((p) => p.code)).toEqual(['MALFORMED_INPUT']);
+    for (const bad of [
+      { actorName: 42 },
+      { actorEmail: null },
+      { actorRole: { role: 'owner' } },
+      { actorUserId: 7 },
+      { actorName: undefined },
+    ]) {
+      const input = { ...ok(), ...bad } as unknown;
+      expect(() => validateAiConsentEvent(input), JSON.stringify(bad)).not.toThrow();
+      expect(validateAiConsentEvent(input).map((p) => p.code), JSON.stringify(bad)).toContain(
+        'actorRole' in bad ? 'NOT_OWNER' : 'MISSING_ACTOR',
+      );
+    }
+    const staff = { ...ok({ action: 'withdraw', source: 'email_request', actorUserId: null }), recordedByUserId: 12 } as unknown;
+    expect(validateAiConsentEvent(staff).map((p) => p.code)).toEqual(['MISSING_RECORDER']);
+    expect(validateAiConsentEvent({}).map((p) => p.code)).toEqual(['UNKNOWN_KIND', 'UNKNOWN_ACTION', 'UNKNOWN_SOURCE']);
   });
 
   it('refuses a missing actor once, not twice', () => {
@@ -319,8 +432,10 @@ describe('validateAiConsentEvent', () => {
   });
 
   it('refuses unknown enum values without throwing', () => {
-    const bad = { ...ok(), kind: 'everything', lang: 'fr' } as unknown as AiConsentEvent;
-    expect(codes(bad)).toEqual(['UNKNOWN_KIND', 'UNKNOWN_LANG']);
+    const bad = { ...ok(), kind: 'everything' } as unknown as AiConsentEvent;
+    expect(codes(bad)).toEqual(['UNKNOWN_KIND']);
+    const badLang = { ...ok(), lang: 'fr' } as unknown as AiConsentEvent;
+    expect(codes(badLang)).toEqual(['UNKNOWN_LANG']);
   });
 
   it('every problem has a plain-words message for the red banner', () => {

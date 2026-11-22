@@ -11,7 +11,7 @@
  * for advertising.
  */
 import { type ConsentLang } from './ai-improvement.js';
-export declare const GMAIL_DISCLOSURE_VERSION = "2026-11-22.1";
+export declare const GMAIL_DISCLOSURE_VERSION = "2026-11-22.2";
 /** How far back a first connection copies mail. Part of the disclosure text. */
 export declare const GMAIL_DISCLOSURE_LOOKBACK_DAYS = 14;
 export interface GmailDisclosureCopy {

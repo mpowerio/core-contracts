@@ -3,8 +3,10 @@
 -- ============================================================================
 --
 -- This file is a reference, not a migration. Nothing runs it. Each system
--- copies it into its own migration folder, keeps exactly ONE grant variant
--- from the bottom of the file, and adapts names to its own conventions.
+-- copies it into its own migration folder and adds exactly ONE grant variant
+-- from the bottom of the file. Applied as written, with no variant, it is
+-- closed: no app role (anon, authenticated, service_role) can read a table,
+-- write a table or run a function. Variants only ADD grants.
 --
 -- Shape: the single-business form (one database = one business), used by
 -- JBET and FPC. The substrate hosts several businesses in one database, so
@@ -20,28 +22,39 @@
 --   action in ('opt_in', 'withdraw')
 --   lang   in ('en', 'es')
 --   source in ('settings', 'email_request')
---   wording_version  = AI_CONSENT_WORDING_VERSIONS[kind] at the time of the event
---   wording_sha256   = wordingSha256(kind, lang)   (lowercase hex, 64 chars)
--- The server action must run validateAiConsentEvent() before calling
--- ai_consent_record(); the database repeats the rules it can check alone.
+--   opt_in:   wording_version = AI_CONSENT_WORDING_VERSIONS[kind] and
+--             wording_sha256  = wordingSha256(kind, lang)  (checked by the
+--             server with validateAiConsentEvent() before the call)
+--   withdraw: wording evidence is recorded when well-formed, stored as NULL
+--             when not, and never blocks switching off.
 --
 -- Rules enforced here:
---   * Append-only. UPDATE, DELETE and TRUNCATE on events raise. The only
---     exception is ai_consent_retention_purge(), 3 years after the last
---     withdrawal (the policy's retention promise).
+--   * Append-only, and one write path. App roles get no INSERT, UPDATE,
+--     DELETE or TRUNCATE on either table. Every change goes through
+--     ai_consent_record() (SECURITY DEFINER), which writes the event and, on
+--     a withdrawal, its deletion request in the same transaction.
+--   * UPDATE and TRUNCATE on events always raise. DELETE raises unless it
+--     runs as the table owner inside ai_consent_retention_purge(); a session
+--     setting alone is not enough.
 --   * Opt-in only from Settings, only by an owner, only with the attestation
 --     ticked. Staff never opt a business in; staff may record a withdrawal the
 --     business asked for by email (source = 'email_request').
 --   * Own-records training cannot be turned on yet (Chair ruling 3). Remove
 --     that CHECK in a later migration together with a new wording version.
---   * The same state twice is refused (on -> on, off -> off).
---   * A withdrawal creates exactly one deletion request in the same
---     transaction. MILA's exporter pulls it, deletes the data it holds, and
---     writes back 'completed' (with a count) or 'completed_nothing_held' only
---     after it has examined the data set.
---   * ai_consent_window(kind) is the ONLY read the exporter uses. No row means
---     "never opted in". An error or a missing function must make the exporter
---     stop loudly; it never means "not opted in".
+--   * Turning on when already on is refused. Turning off when already off is
+--     not an error: it writes nothing and returns the earlier withdrawal's id
+--     (or NULL if the business never opted in), so a retry is safe.
+--   * A deletion request may only move from pending to completed, once,
+--     through ai_deletion_request_complete(). MILA's exporter writes
+--     'completed' (with a count) or 'completed_nothing_held' only after it has
+--     examined the data set.
+--   * ai_consent_window(kind) is the ONLY read the exporter uses. It returns
+--     one row only while the business is opted in; after a withdrawal it
+--     returns zero rows. No row means "do not use". An error or a missing
+--     function must make the exporter stop loudly; it never means "not
+--     opted in". ai_consent_windows_audit(kind) lists past windows for
+--     people and audits; the exporter never calls it.
+--   * The retention purge uses the database clock only.
 --
 -- Ledger rows hold the agreeing person's name, email and role only. Never
 -- message text, never customer data.
@@ -66,9 +79,10 @@ CREATE TABLE public.ai_consent_events (
   -- Resolved by the system from its own session or membership table.
   actor_role          text NOT NULL CHECK (btrim(actor_role)  <> ''),
   authority_attested  boolean NOT NULL,
-  wording_version     text NOT NULL CHECK (wording_version ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}\.[0-9]+$'),
-  wording_sha256      text NOT NULL CHECK (wording_sha256 ~ '^[0-9a-f]{64}$'),
-  lang                text NOT NULL CHECK (lang IN ('en', 'es')),
+  -- Required for opt_in; evidence only (nullable) for withdraw.
+  wording_version     text CHECK (wording_version ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}\.[0-9]+$'),
+  wording_sha256      text CHECK (wording_sha256 ~ '^[0-9a-f]{64}$'),
+  lang                text CHECK (lang IN ('en', 'es')),
   -- Staff member who entered an emailed withdrawal.
   recorded_by_user_id text,
   -- e.g. a mail message id. Never message text.
@@ -82,7 +96,9 @@ CREATE TABLE public.ai_consent_events (
     source <> 'email_request' OR recorded_by_user_id IS NOT NULL
   ),
   CONSTRAINT ai_consent_opt_in_rules CHECK (
-    action = 'withdraw' OR (source = 'settings' AND authority_attested)
+    action = 'withdraw'
+    OR (source = 'settings' AND authority_attested IS TRUE
+        AND wording_version IS NOT NULL AND wording_sha256 IS NOT NULL AND lang IS NOT NULL)
   ),
   CONSTRAINT ai_consent_own_records_not_offered CHECK (
     NOT (kind = 'own_records_training' AND action = 'opt_in')
@@ -110,7 +126,20 @@ CREATE TABLE public.ai_improvement_deletion_requests (
   )
 );
 
--- ── Append-only guards ──────────────────────────────────────────────────────
+-- ── Guards ──────────────────────────────────────────────────────────────────
+
+-- True only when the statement runs as the table's owner AND inside the
+-- purge function (which sets the marker transaction-locally). App roles are
+-- never the owner, so setting the marker themselves does not help them.
+CREATE FUNCTION public.ai_consent_purge_in_progress(p_rel oid)
+RETURNS boolean
+LANGUAGE sql
+STABLE
+SET search_path = pg_catalog, public
+AS $$
+  SELECT current_user = (SELECT pg_get_userbyid(relowner) FROM pg_class WHERE oid = p_rel)
+     AND coalesce(current_setting('ai_consent.purge', true), '') = 'on';
+$$;
 
 CREATE FUNCTION public.ai_consent_block_change()
 RETURNS trigger
@@ -118,8 +147,7 @@ LANGUAGE plpgsql
 SET search_path = pg_catalog, public
 AS $$
 BEGIN
-  -- Set only inside ai_consent_retention_purge(), transaction-local.
-  IF current_setting('ai_consent.purge', true) = 'on' AND TG_OP = 'DELETE' THEN
+  IF TG_OP = 'DELETE' AND public.ai_consent_purge_in_progress(TG_RELID) THEN
     RETURN OLD;
   END IF;
   RAISE EXCEPTION 'ai_consent_events is append-only (% refused)', TG_OP
@@ -135,18 +163,28 @@ CREATE TRIGGER ai_consent_events_no_truncate
   BEFORE TRUNCATE ON public.ai_consent_events
   FOR EACH STATEMENT EXECUTE FUNCTION public.ai_consent_block_change();
 
--- Deletion requests: the only allowed change is pending -> completed*, once,
--- with the identifying columns unchanged.
+-- Deletion requests: created only for a withdrawal of the same kind; the only
+-- allowed change is pending -> completed*, once, identifying columns fixed.
 CREATE FUNCTION public.ai_deletion_request_guard()
 RETURNS trigger
 LANGUAGE plpgsql
 SET search_path = pg_catalog, public
 AS $$
 BEGIN
-  IF TG_OP = 'DELETE' OR TG_OP = 'TRUNCATE' THEN
-    IF TG_OP = 'DELETE' AND current_setting('ai_consent.purge', true) = 'on' THEN
-      RETURN OLD;
+  IF TG_OP = 'INSERT' THEN
+    IF NOT EXISTS (
+      SELECT 1 FROM public.ai_consent_events ev
+       WHERE ev.id = NEW.consent_event_id AND ev.action = 'withdraw' AND ev.kind = NEW.kind
+    ) OR NEW.status <> 'pending' THEN
+      RAISE EXCEPTION 'a deletion request must point at a withdrawal of the same kind and start pending'
+        USING ERRCODE = 'check_violation';
     END IF;
+    RETURN NEW;
+  END IF;
+  IF TG_OP = 'DELETE' AND public.ai_consent_purge_in_progress(TG_RELID) THEN
+    RETURN OLD;
+  END IF;
+  IF TG_OP IN ('DELETE', 'TRUNCATE') THEN
     RAISE EXCEPTION 'ai_improvement_deletion_requests rows cannot be deleted (% refused)', TG_OP
       USING ERRCODE = 'insufficient_privilege';
   END IF;
@@ -164,7 +202,7 @@ END;
 $$;
 
 CREATE TRIGGER ai_deletion_requests_guard
-  BEFORE UPDATE OR DELETE ON public.ai_improvement_deletion_requests
+  BEFORE INSERT OR UPDATE OR DELETE ON public.ai_improvement_deletion_requests
   FOR EACH ROW EXECUTE FUNCTION public.ai_deletion_request_guard();
 
 CREATE TRIGGER ai_deletion_requests_no_truncate
@@ -173,10 +211,11 @@ CREATE TRIGGER ai_deletion_requests_no_truncate
 
 -- ── Record a change (the only write path) ──────────────────────────────────
 -- JBET/FPC: called by the server with service_role after it resolved the
--- actor from its own session. SUBSTRATE: called by `authenticated`; the
--- function reads auth.uid(), checks current_tenant_id() = p_tenant,
--- current_role_in_tenant() = 'owner' and NOT current_is_root(), and fills
--- actor_* itself instead of taking them as arguments.
+-- actor from its own session. SUBSTRATE: rewrite it to read auth.uid(),
+-- check current_tenant_id() = p_tenant, current_role_in_tenant() = 'owner'
+-- and NOT current_is_root(), and fill actor_* itself instead of taking them
+-- as arguments. This single-business version TRUSTS its actor arguments, so
+-- it must never be executable by `authenticated`.
 
 CREATE FUNCTION public.ai_consent_record(
   p_kind                public.ai_consent_kind,
@@ -199,23 +238,36 @@ SECURITY DEFINER
 SET search_path = pg_catalog, public
 AS $$
 DECLARE
-  v_last  public.ai_consent_action;
-  v_event uuid;
+  v_last_action public.ai_consent_action;
+  v_last_id     uuid;
+  v_version     text := p_wording_version;
+  v_sha         text := p_wording_sha256;
+  v_lang        text := p_lang;
+  v_event       uuid;
 BEGIN
-  -- One change per kind at a time, so "already on" is decided correctly.
+  -- One change per kind at a time, so "already on/off" is decided correctly.
   PERFORM pg_advisory_xact_lock(hashtext('ai_consent:' || p_kind::text));
 
-  SELECT action INTO v_last
+  SELECT action, id INTO v_last_action, v_last_id
     FROM public.ai_consent_events
    WHERE kind = p_kind
    ORDER BY occurred_at DESC, id DESC
    LIMIT 1;
 
-  IF p_action = 'opt_in' AND v_last = 'opt_in' THEN
+  IF p_action = 'opt_in' AND v_last_action = 'opt_in' THEN
     RAISE EXCEPTION 'already on' USING ERRCODE = 'check_violation';
   END IF;
-  IF p_action = 'withdraw' AND v_last IS DISTINCT FROM 'opt_in' THEN
-    RAISE EXCEPTION 'already off' USING ERRCODE = 'check_violation';
+
+  IF p_action = 'withdraw' THEN
+    IF v_last_action IS DISTINCT FROM 'opt_in' THEN
+      -- Already off (or never on): nothing to do, and not an error.
+      RETURN CASE WHEN v_last_action = 'withdraw' THEN v_last_id END;
+    END IF;
+    -- Wording is evidence for a withdrawal, never a condition. Keep it only
+    -- when well-formed; store NULL otherwise.
+    IF v_version IS NULL OR v_version !~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}\.[0-9]+$' THEN v_version := NULL; END IF;
+    IF v_sha IS NULL OR v_sha !~ '^[0-9a-f]{64}$' THEN v_sha := NULL; END IF;
+    IF v_lang IS NULL OR v_lang NOT IN ('en', 'es') THEN v_lang := NULL; END IF;
   END IF;
 
   INSERT INTO public.ai_consent_events (
@@ -224,7 +276,7 @@ BEGIN
     recorded_by_user_id, request_ref
   ) VALUES (
     p_kind, p_action, p_source, p_actor_user_id, p_actor_name, p_actor_email, p_actor_role,
-    p_authority_attested, p_wording_version, p_wording_sha256, p_lang,
+    coalesce(p_authority_attested, false), v_version, v_sha, v_lang,
     p_recorded_by_user_id, p_request_ref
   )
   RETURNING id INTO v_event;
@@ -238,40 +290,81 @@ BEGIN
 END;
 $$;
 
+-- ── Complete a deletion request (the exporter's only write) ────────────────
+
+CREATE FUNCTION public.ai_deletion_request_complete(
+  p_request_id   uuid,
+  p_status       text,
+  p_deleted_rows bigint,
+  p_executor     text
+)
+RETURNS void
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = pg_catalog, public
+AS $$
+BEGIN
+  IF p_status NOT IN ('completed', 'completed_nothing_held') THEN
+    RAISE EXCEPTION 'status must be completed or completed_nothing_held' USING ERRCODE = 'check_violation';
+  END IF;
+  UPDATE public.ai_improvement_deletion_requests
+     SET status = p_status, completed_at = now(), deleted_rows = p_deleted_rows, executor = p_executor
+   WHERE id = p_request_id AND status = 'pending';
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'no pending deletion request %', p_request_id USING ERRCODE = 'no_data_found';
+  END IF;
+END;
+$$;
+
 -- ── Training gate: the exporter's only read ────────────────────────────────
--- Returns the current window, or the most recent closed one. Zero rows means
--- the business never opted in to this kind. Use activity only at or after
--- opted_in_at and, when withdrawn_at is set, before withdrawn_at.
+-- One row while the business is opted in to this kind: the time of the
+-- latest opt-in. Zero rows if it never opted in OR its latest event is a
+-- withdrawal. Use only activity at or after opted_in_at.
 
 CREATE FUNCTION public.ai_consent_window(p_kind public.ai_consent_kind)
+RETURNS TABLE (opted_in_at timestamptz)
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path = pg_catalog, public
+AS $$
+  SELECT latest.occurred_at
+    FROM (
+      SELECT action, occurred_at
+        FROM public.ai_consent_events
+       WHERE kind = p_kind
+       ORDER BY occurred_at DESC, id DESC
+       LIMIT 1
+    ) latest
+   WHERE latest.action = 'opt_in';
+$$;
+
+-- ── Audit read: every window, open or closed. NOT for the exporter. ────────
+
+CREATE FUNCTION public.ai_consent_windows_audit(p_kind public.ai_consent_kind)
 RETURNS TABLE (opted_in_at timestamptz, withdrawn_at timestamptz)
 LANGUAGE sql
 STABLE
 SECURITY DEFINER
 SET search_path = pg_catalog, public
 AS $$
-  WITH last_in AS (
-    SELECT occurred_at, id
-      FROM public.ai_consent_events
-     WHERE kind = p_kind AND action = 'opt_in'
-     ORDER BY occurred_at DESC, id DESC
-     LIMIT 1
-  )
-  SELECT li.occurred_at,
+  SELECT o.occurred_at,
          (SELECT min(w.occurred_at)
             FROM public.ai_consent_events w
            WHERE w.kind = p_kind AND w.action = 'withdraw'
-             AND (w.occurred_at, w.id) > (li.occurred_at, li.id))
-    FROM last_in li;
+             AND (w.occurred_at, w.id) > (o.occurred_at, o.id))
+    FROM public.ai_consent_events o
+   WHERE o.kind = p_kind AND o.action = 'opt_in'
+   ORDER BY o.occurred_at;
 $$;
 
 -- ── Retention purge: 3 years after the last withdrawal ─────────────────────
 -- Deletes the whole ledger only when every kind is off (last event is a
 -- withdrawal, or there are no events), no deletion request is pending, and
--- the last withdrawal is older than 3 years. Returns the events deleted.
--- p_now exists so tests can drive the clock.
+-- the last withdrawal is more than 3 years old by the database clock.
+-- Returns the number of events deleted.
 
-CREATE FUNCTION public.ai_consent_retention_purge(p_now timestamptz DEFAULT now())
+CREATE FUNCTION public.ai_consent_retention_purge()
 RETURNS bigint
 LANGUAGE plpgsql
 SECURITY DEFINER
@@ -286,7 +379,7 @@ BEGIN
   PERFORM pg_advisory_xact_lock(hashtext('ai_consent:service_improvement'));
   PERFORM pg_advisory_xact_lock(hashtext('ai_consent:own_records_training'));
 
-  SELECT bool_or(last_action = 'opt_in') INTO v_any_on
+  SELECT coalesce(bool_or(last_action = 'opt_in'), false) INTO v_any_on
     FROM (
       SELECT DISTINCT ON (kind) kind, action AS last_action
         FROM public.ai_consent_events
@@ -297,8 +390,8 @@ BEGIN
   SELECT max(occurred_at) INTO v_last_withdraw
     FROM public.ai_consent_events WHERE action = 'withdraw';
 
-  IF coalesce(v_any_on, false) OR v_pending OR v_last_withdraw IS NULL
-     OR v_last_withdraw > p_now - interval '3 years' THEN
+  IF v_any_on OR v_pending OR v_last_withdraw IS NULL
+     OR v_last_withdraw > now() - interval '3 years' THEN
     RETURN 0;
   END IF;
 
@@ -311,7 +404,7 @@ BEGIN
 END;
 $$;
 
--- ── RLS: on everywhere. No write policies: writes go through the function. ──
+-- ── RLS: on everywhere. No policies for writes: there are no write grants. ──
 
 ALTER TABLE public.ai_consent_events ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.ai_improvement_deletion_requests ENABLE ROW LEVEL SECURITY;
@@ -321,80 +414,72 @@ ALTER TABLE public.ai_improvement_deletion_requests ENABLE ROW LEVEL SECURITY;
 -- CREATE POLICY ai_deletion_requests_select ON public.ai_improvement_deletion_requests FOR SELECT
 --   USING (tenant_id = public.current_tenant_id() OR public.current_is_root());
 
--- ── Rule-18 grants: KEEP EXACTLY ONE VARIANT ───────────────────────────────
--- Grants are additive and Postgres gives EXECUTE on new functions to PUBLIC,
--- so every variant revokes from PUBLIC, anon and authenticated first.
--- TRUNCATE is never granted to anon or authenticated.
+-- ── Rule 18, part 1 (always applied): close everything ─────────────────────
+-- Postgres gives EXECUTE on new functions and USAGE on new types to PUBLIC,
+-- and Supabase's default privileges give app roles full table access. Remove
+-- all of it here, so the file is safe even if no variant is added.
 
--- >>> VARIANT substrate (Supabase Auth; authenticated reads its own rows via
--- RLS and writes ONLY through ai_consent_record, never table writes, so the
--- append-only rule cannot be bypassed through the Data API. This is narrower
--- than the canonical full-CRUD grant on purpose. Grant EXECUTE on the record
--- function to authenticated ONLY after it is rewritten to resolve the actor
--- from the session; the single-business version above trusts its arguments.)
--- REVOKE ALL ON TABLE public.ai_consent_events, public.ai_improvement_deletion_requests
---   FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON TABLE public.ai_consent_events, public.ai_improvement_deletion_requests
+  FROM PUBLIC, anon, authenticated, service_role;
+REVOKE ALL ON TYPE public.ai_consent_kind, public.ai_consent_action
+  FROM PUBLIC, anon, authenticated, service_role;
+REVOKE ALL ON FUNCTION
+  public.ai_consent_record(public.ai_consent_kind, public.ai_consent_action, text, text, text, text, text, boolean, text, text, text, text, text),
+  public.ai_deletion_request_complete(uuid, text, bigint, text),
+  public.ai_consent_window(public.ai_consent_kind),
+  public.ai_consent_windows_audit(public.ai_consent_kind),
+  public.ai_consent_retention_purge(),
+  public.ai_consent_purge_in_progress(oid),
+  public.ai_consent_block_change(),
+  public.ai_deletion_request_guard()
+  FROM PUBLIC, anon, authenticated, service_role;
+
+-- ── Rule 18, part 2: ADD EXACTLY ONE VARIANT (grants only) ─────────────────
+-- No variant grants INSERT, UPDATE, DELETE or TRUNCATE on either table to any
+-- app role: writes go only through the functions.
+
+-- >>> VARIANT substrate (Supabase Auth. authenticated reads its own business's
+-- rows through RLS. The server writes with service_role. Grant EXECUTE on the
+-- record function to authenticated ONLY after it is rewritten to resolve the
+-- actor and tenant from the session; until then it stays service_role only.)
 -- GRANT SELECT ON TABLE public.ai_consent_events, public.ai_improvement_deletion_requests
---   TO authenticated;
--- GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE public.ai_consent_events,
---   public.ai_improvement_deletion_requests TO service_role;
--- GRANT USAGE ON TYPE public.ai_consent_kind, public.ai_consent_action TO authenticated, service_role;
--- REVOKE ALL ON FUNCTION
---   public.ai_consent_record(public.ai_consent_kind, public.ai_consent_action, text, text, text, text, text, boolean, text, text, text, text, text),
---   public.ai_consent_window(public.ai_consent_kind),
---   public.ai_consent_retention_purge(timestamptz),
---   public.ai_consent_block_change(),
---   public.ai_deletion_request_guard()
---   FROM PUBLIC, anon, authenticated;
--- GRANT EXECUTE ON FUNCTION
---   public.ai_consent_record(public.ai_consent_kind, public.ai_consent_action, text, text, text, text, text, boolean, text, text, text, text, text)
 --   TO authenticated, service_role;
--- GRANT EXECUTE ON FUNCTION public.ai_consent_window(public.ai_consent_kind) TO service_role;
--- GRANT EXECUTE ON FUNCTION public.ai_consent_retention_purge(timestamptz) TO service_role;
+-- GRANT USAGE ON TYPE public.ai_consent_kind, public.ai_consent_action TO authenticated, service_role;
+-- GRANT EXECUTE ON FUNCTION
+--   public.ai_consent_record(public.ai_consent_kind, public.ai_consent_action, text, text, text, text, text, boolean, text, text, text, text, text),
+--   public.ai_deletion_request_complete(uuid, text, bigint, text),
+--   public.ai_consent_window(public.ai_consent_kind),
+--   public.ai_consent_windows_audit(public.ai_consent_kind),
+--   public.ai_consent_retention_purge()
+--   TO service_role;
 -- <<< END VARIANT substrate
 
 -- >>> VARIANT jbet (NextAuth, no Supabase JWTs: service_role only. JBET's
 -- grant lint fails any authenticated grant.)
--- REVOKE ALL ON TABLE public.ai_consent_events, public.ai_improvement_deletion_requests
---   FROM PUBLIC, anon, authenticated;
--- GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE public.ai_consent_events,
---   public.ai_improvement_deletion_requests TO service_role;
+-- GRANT SELECT ON TABLE public.ai_consent_events, public.ai_improvement_deletion_requests
+--   TO service_role;
 -- GRANT USAGE ON TYPE public.ai_consent_kind, public.ai_consent_action TO service_role;
--- REVOKE ALL ON FUNCTION
---   public.ai_consent_record(public.ai_consent_kind, public.ai_consent_action, text, text, text, text, text, boolean, text, text, text, text, text),
---   public.ai_consent_window(public.ai_consent_kind),
---   public.ai_consent_retention_purge(timestamptz),
---   public.ai_consent_block_change(),
---   public.ai_deletion_request_guard()
---   FROM PUBLIC, anon, authenticated;
 -- GRANT EXECUTE ON FUNCTION
 --   public.ai_consent_record(public.ai_consent_kind, public.ai_consent_action, text, text, text, text, text, boolean, text, text, text, text, text),
+--   public.ai_deletion_request_complete(uuid, text, bigint, text),
 --   public.ai_consent_window(public.ai_consent_kind),
---   public.ai_consent_retention_purge(timestamptz)
+--   public.ai_consent_windows_audit(public.ai_consent_kind),
+--   public.ai_consent_retention_purge()
 --   TO service_role;
 -- <<< END VARIANT jbet
 
--- >>> VARIANT fpc (Supabase Auth, server actions write with service_role.
+-- >>> VARIANT fpc (Supabase Auth; server actions write with service_role.
 -- authenticated gets an inert SELECT because FPC's grant linter requires it;
 -- with RLS on and no policies it returns zero rows.)
--- REVOKE ALL ON TABLE public.ai_consent_events, public.ai_improvement_deletion_requests
---   FROM PUBLIC, anon, authenticated;
 -- GRANT SELECT ON TABLE public.ai_consent_events, public.ai_improvement_deletion_requests
---   TO authenticated;
--- GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE public.ai_consent_events,
---   public.ai_improvement_deletion_requests TO service_role;
+--   TO authenticated, service_role;
 -- GRANT USAGE ON TYPE public.ai_consent_kind, public.ai_consent_action TO authenticated, service_role;
--- REVOKE ALL ON FUNCTION
---   public.ai_consent_record(public.ai_consent_kind, public.ai_consent_action, text, text, text, text, text, boolean, text, text, text, text, text),
---   public.ai_consent_window(public.ai_consent_kind),
---   public.ai_consent_retention_purge(timestamptz),
---   public.ai_consent_block_change(),
---   public.ai_deletion_request_guard()
---   FROM PUBLIC, anon, authenticated;
 -- GRANT EXECUTE ON FUNCTION
 --   public.ai_consent_record(public.ai_consent_kind, public.ai_consent_action, text, text, text, text, text, boolean, text, text, text, text, text),
+--   public.ai_deletion_request_complete(uuid, text, bigint, text),
 --   public.ai_consent_window(public.ai_consent_kind),
---   public.ai_consent_retention_purge(timestamptz)
+--   public.ai_consent_windows_audit(public.ai_consent_kind),
+--   public.ai_consent_retention_purge()
 --   TO service_role;
 -- <<< END VARIANT fpc
 

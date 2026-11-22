@@ -11,7 +11,7 @@
  * for advertising.
  */
 import { sha256Hex } from './ai-improvement.js';
-export const GMAIL_DISCLOSURE_VERSION = '2026-11-22.1';
+export const GMAIL_DISCLOSURE_VERSION = '2026-11-22.2';
 /** How far back a first connection copies mail. Part of the disclosure text. */
 export const GMAIL_DISCLOSURE_LOOKBACK_DAYS = 14;
 export const GMAIL_DISCLOSURE_COPY = Object.freeze({
@@ -21,7 +21,7 @@ export const GMAIL_DISCLOSURE_COPY = Object.freeze({
         connect: 'Connect Google',
     }),
     es: Object.freeze({
-        disclosure: 'Al conectar, se copian a tu CRM los mensajes de los últimos 14 días. Los guardan para nosotros nuestros proveedores de base de datos y de alojamiento. Nunca los usamos para entrenar modelos de IA ni para publicidad.',
+        disclosure: 'Al conectar, se copian a tu CRM los mensajes de los últimos 14 días. Los guardan para nosotros nuestros proveedores de base de datos y de alojamiento. Nunca los usamos para entrenar modelos ni para publicidad.',
         agree: 'Acepto',
         connect: 'Conectar Google',
     }),

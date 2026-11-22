@@ -41,11 +41,15 @@ export declare const AI_CONSENT_REQUIRED_ROLE = "owner";
  * by the policy (Chair ruling 3).
  */
 export declare const AI_CONSENT_OFFERED: Readonly<Record<AiConsentKind, boolean>>;
-export declare const AI_IMPROVEMENT_WORDING_VERSION = "2026-11-22.1";
-export declare const OWN_RECORDS_TRAINING_WORDING_VERSION = "2026-11-22.1";
+export declare const AI_IMPROVEMENT_WORDING_VERSION = "2026-11-22.2";
+export declare const OWN_RECORDS_TRAINING_WORDING_VERSION = "2026-11-22.2";
 export declare const AI_CONSENT_WORDING_VERSIONS: Readonly<Record<AiConsentKind, string>>;
-/** The policy section the switch links to (anchor exists at #376). */
-export declare const AI_IMPROVEMENT_DETAILS_URL = "https://mpowerio.ai/privacy#ai-improvement-program";
+/**
+ * The policy section the switch links to. `#service-improvement` is the top
+ * of the "Service-improvement data" section at #376, so the reader lands on
+ * the purpose and exclusions first, then the opt-in and switch-off paragraph.
+ */
+export declare const AI_IMPROVEMENT_DETAILS_URL = "https://mpowerio.ai/privacy#service-improvement";
 export interface AiConsentSwitchCopy {
     title: string;
     /** State line when off. */
@@ -97,11 +101,16 @@ export interface AiConsentEvent {
     actorEmail: string;
     /** Resolved by the system itself (session/membership), never sent by the browser. */
     actorRole: string;
-    /** The attestation checkbox. Must be true for opt_in. */
+    /** The attestation checkbox. Must be literally `true` for opt_in. */
     authorityAttested: boolean;
-    wordingVersion: string;
-    wordingSha256: string;
-    lang: ConsentLang;
+    /**
+     * The wording the person saw. Required and current for opt_in. For a
+     * withdrawal it is recorded as evidence when available (any past version,
+     * or null), and is never a reason to refuse switching off.
+     */
+    wordingVersion: string | null;
+    wordingSha256: string | null;
+    lang: ConsentLang | null;
     /** Staff member who recorded an emailed withdrawal. */
     recordedByUserId?: string | null;
     /** e.g. a mail message id. Never message text. */
@@ -109,7 +118,7 @@ export interface AiConsentEvent {
     /** ISO-8601. Set by the database clock. */
     occurredAt?: string;
 }
-export type AiConsentProblemCode = 'UNKNOWN_KIND' | 'UNKNOWN_ACTION' | 'UNKNOWN_LANG' | 'UNKNOWN_SOURCE' | 'NOT_OFFERED' | 'NOT_OWNER' | 'NOT_ATTESTED' | 'STAFF_CANNOT_OPT_IN' | 'MISSING_ACTOR' | 'MISSING_RECORDER' | 'STALE_WORDING_VERSION' | 'WORDING_HASH_MISMATCH';
+export type AiConsentProblemCode = 'MALFORMED_INPUT' | 'UNKNOWN_KIND' | 'UNKNOWN_ACTION' | 'UNKNOWN_LANG' | 'UNKNOWN_SOURCE' | 'NOT_OFFERED' | 'NOT_OWNER' | 'NOT_ATTESTED' | 'STAFF_CANNOT_OPT_IN' | 'MISSING_ACTOR' | 'MISSING_RECORDER' | 'STALE_WORDING_VERSION' | 'WORDING_HASH_MISMATCH';
 export interface AiConsentProblem {
     code: AiConsentProblemCode;
     /** Plain words, safe to show in a red banner. */
@@ -117,11 +126,16 @@ export interface AiConsentProblem {
 }
 /**
  * Check a proposed ledger row against the contract before it is written.
- * Returns an empty array when the row is acceptable. Each system's database
- * RPC must enforce the same rules; this function lets the server action and
- * the tests share one definition.
+ * Returns an empty array when the row is acceptable. Never throws: input of
+ * the wrong shape (for example straight from a request body) comes back as
+ * problems. Each system's database function must enforce the same rules;
+ * this function lets the server action and the tests share one definition.
+ *
+ * Turning on needs the current wording, version and hash. Turning off never
+ * depends on the wording: a stale page, an older version or a missing hash
+ * must not stop a business from switching off.
  */
-export declare function validateAiConsentEvent(e: AiConsentEvent): AiConsentProblem[];
+export declare function validateAiConsentEvent(input: unknown): AiConsentProblem[];
 /** Lowercase hex SHA-256 of the UTF-8 encoding of `text`. */
 export declare function sha256Hex(text: string): string;
 //# sourceMappingURL=ai-improvement.d.ts.map
